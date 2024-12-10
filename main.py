@@ -1,6 +1,6 @@
 import os
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 
 app = FastAPI()
 
@@ -25,6 +25,13 @@ async def telegram(request: Request):
 
 @app.post("/sendMessage")
 async def send_message(chat_id: str, text: str):
+    """
+    Endpoint to send a message via Telegram bot.
+    
+    Parameters:
+    - chat_id: Unique identifier for the target chat or channel username.
+    - text: Message text to be sent.
+    """
     if not BOT_TOKEN:
         raise HTTPException(status_code=500, detail="BOT_TOKEN is not set.")
     
