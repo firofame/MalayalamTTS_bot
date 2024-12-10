@@ -18,9 +18,16 @@ async def root():
 
 @app.post("/telegram")
 async def telegram(request: Request):
+    # Get the incoming data
     data = await request.json()
-    print(data)  # This will print the request payload to the console
-    return {"status": "success", "message": "Data received"}
+    print(data)  # Print the request payload to the console
+
+    # Extract chat_id and text from the incoming message
+    chat_id = data['message']['chat']['id']
+    text = data['message']['text']
+
+    # Call the send_message function to echo the text back
+    return await send_message(chat_id=chat_id, text=text)
 
 
 @app.post("/sendMessage")
