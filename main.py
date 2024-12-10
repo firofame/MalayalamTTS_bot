@@ -30,9 +30,6 @@ async def telegram(request: Request):
     chat_id = data['message']['chat']['id']
     text = data['message']['text']
 
-    communicate = edge_tts.Communicate(text, VOICE)
-    await communicate.save(OUTPUT_FILE)
-
     # Call the send_message function to echo the text back
     return await send_message(chat_id=chat_id, text=text)
 
@@ -49,10 +46,14 @@ async def send_message(chat_id: str, text: str):
     if not BOT_TOKEN:
         raise HTTPException(status_code=500, detail="BOT_TOKEN is not set.")
     
-    send_message_url = f"{TELEGRAM_API_URL}/sendMessage"
+    
+    communicate = edge_tts.Communicate(text, VOICE)
+    await communicate.save(OUTPUT_FILE)
+    
+    send_message_url = f"{TELEGRAM_API_URL}/sendVoice"
     payload = {
         "chat_id": chat_id,
-        "text": text,
+        "voice": OUTPUT_FILE,
     }
     
     response = requests.post(send_message_url, json=payload)
