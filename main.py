@@ -1,10 +1,7 @@
 import os
 import requests
-from fastapi import FastAPI, Request, HTTPException
 import edge_tts
-
-VOICE = "ml-IN-MidhunNeural"
-OUTPUT_FILE = "test.mp3"
+from fastapi import FastAPI, Request, HTTPException
 
 app = FastAPI()
 
@@ -14,11 +11,8 @@ if not BOT_TOKEN:
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
-
+OUTPUT_FILE = "output_audio.mp3"  # The file where the audio will be saved (MP3 format)
+VOICE = "ml-IN-MidhunNeural"  # The voice you want to use (in your case, MidhunNeural)
 
 @app.post("/telegram")
 async def telegram(request: Request):
@@ -30,37 +24,37 @@ async def telegram(request: Request):
     chat_id = data['message']['chat']['id']
     text = data['message']['text']
 
-    # Call the send_message function to echo the text back
-    return await send_message(chat_id=chat_id, text=text)
+    # Call the function to generate the voice message
+    await generate_and_send_voice(chat_id, text)
+
+    return {"status": "success", "message": "Voice sent"}
 
 
-@app.post("/sendMessage")
-async def send_message(chat_id: str, text: str):
+async def generate_and_send_voice(chat_id: str, text: str):
     """
-    Endpoint to send a message via Telegram bot.
-    
-    Parameters:
-    - chat_id: Unique identifier for the target chat or channel username.
-    - text: Message text to be sent.
+    Generate voice from text and send it as a voice message to Telegram.
     """
-    if not BOT_TOKEN:
-        raise HTTPException(status_code=500, detail="BOT_TOKEN is not set.")
-    
-    
+    # Generate the voice file (MP3 format)
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(OUTPUT_FILE)
     
+    # Send the generated voice file via Telegram
     send_message_url = f"{TELEGRAM_API_URL}/sendVoice"
-    payload = {
-        "chat_id": chat_id,
-        "voice": OUTPUT_FILE,
-    }
     
-    response = requests.post(send_message_url, json=payload)
-    if response.status_code == 200:
-        return {"status": "success", "data": response.json()}
-    else:
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=f"Failed to send message: {response.text}",
-        )
+    with open(OUTPUT_FILE, 'rb') as audio_file:
+        payload = {
+            "chat_id": chat_id,
+        }
+        files = {
+            "voice": audio_file,
+        }
+        
+        response = requests.post(send_message_url, data=payload, files=files)
+        
+        if response.status_code == 200:
+            print("Voice message sent successfully.")
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Failed to send voice message: {response.text}",
+            )
