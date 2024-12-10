@@ -1,6 +1,10 @@
 import os
 import requests
 from fastapi import FastAPI, Request, HTTPException
+import edge_tts
+
+VOICE = "ml-IN-MidhunNeural"
+OUTPUT_FILE = "test.mp3"
 
 app = FastAPI()
 
@@ -25,6 +29,9 @@ async def telegram(request: Request):
     # Extract chat_id and text from the incoming message
     chat_id = data['message']['chat']['id']
     text = data['message']['text']
+
+    communicate = edge_tts.Communicate(text, VOICE)
+    await communicate.save(OUTPUT_FILE)
 
     # Call the send_message function to echo the text back
     return await send_message(chat_id=chat_id, text=text)
