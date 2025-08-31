@@ -8,7 +8,7 @@ app = FastAPI()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 OUTPUT_FILE = "output_audio.mp3"
-VOICE = "ml-IN-MidhunNeural"
+VOICE = "en-US-AndrewMultilingualNeural"
 
 
 @app.post("/telegram")
