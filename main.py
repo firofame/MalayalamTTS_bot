@@ -3,12 +3,13 @@ import tempfile
 import requests
 import edge_tts
 from fastapi import FastAPI, Request
+from translate import convert_to_audiobook_script
 
 app = FastAPI()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-VOICE = "en-US-AvaMultilingualNeural"
+VOICE = "ml-IN-MidhulaNeural"
 
 
 @app.on_event("startup")
@@ -18,7 +19,7 @@ def setup_commands():
         json={
             "commands": [
                 {"command": "start", "description": "Start the bot"},
-                {"command": "tts", "description": "Convert text to speech"},
+                {"command": "tts", "description": "Translate and convert text to Malayalam speech"},
             ]
         }
     )
@@ -70,20 +71,34 @@ async def telegram(request: Request):
             return {"status": "success"}
 
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            output_file = tmp.name
+            audio_file = tmp.name
+        with tempfile.NamedTemporaryFile(suffix=".txt", mode="w", delete=False, encoding="utf-8") as tmp:
+            tmp.write(args)
+            input_txt = tmp.name
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+            script_txt = tmp.name
 
         try:
-            communicate = edge_tts.Communicate(args, VOICE)
-            await communicate.save(output_file)
+            convert_to_audiobook_script(input_txt, script_txt)
+            script = open(script_txt, encoding="utf-8").read().strip()
 
-            with open(output_file, "rb") as audio_file:
+            if not script:
+                send_message(chat_id, "Translation failed. Please try again.")
+                return {"status": "error"}
+
+            communicate = edge_tts.Communicate(script, VOICE)
+            await communicate.save(audio_file)
+
+            with open(audio_file, "rb") as f:
                 response = requests.post(
                     f"{TELEGRAM_API_URL}/sendVoice",
                     data={"chat_id": chat_id},
-                    files={"voice": audio_file}
+                    files={"voice": f}
                 )
         finally:
-            os.remove(output_file)
+            for f in (input_txt, script_txt, audio_file):
+                if os.path.exists(f):
+                    os.remove(f)
 
         if response.status_code == 200:
             return {"status": "success"}
