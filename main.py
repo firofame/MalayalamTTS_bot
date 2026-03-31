@@ -9,7 +9,7 @@ app = FastAPI()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-VOICE = "ml-IN-MidhulaNeural"
+VOICE = "ml-IN-SobhanaNeural"
 
 
 @app.on_event("startup")
