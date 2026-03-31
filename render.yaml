@@ -1,9 +1,5 @@
 services:
-  # A Docker web service
   - type: web
-    name: fastapi-example
-    runtime: python
-    plan: free
+    name: malayalam-tts-bot
+    runtime: docker
     autoDeploy: false
-    buildCommand: pip install -r requirements.txt && playwright install firefox --with-deps
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
