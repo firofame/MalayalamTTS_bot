@@ -30,14 +30,13 @@ def download_audio(url: str) -> str:
         print(f"Error: yt-dlp failed:\n{result.stderr}")
         sys.exit(1)
 
-    # Find the downloaded file from stdout
-    for line in result.stdout.splitlines():
+    # Look for the final mp3 destination in combined output
+    combined = result.stdout + result.stderr
+    for line in combined.splitlines():
         if "[ExtractAudio] Destination:" in line:
             path = line.split("Destination:")[-1].strip()
-            return path
-        if "[download] Destination:" in line:
-            path = line.split("Destination:")[-1].strip()
-            return path
+            if path.endswith(".mp3") and Path(path).exists():
+                return path
 
     # Fallback: find newest mp3 in downloads/
     mp3s = sorted(output_dir.glob("*.mp3"), key=lambda p: p.stat().st_mtime, reverse=True)
