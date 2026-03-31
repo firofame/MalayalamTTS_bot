@@ -3,7 +3,7 @@ import tempfile
 import requests
 import edge_tts
 from fastapi import FastAPI, Request
-from translate import convert_to_audiobook_script
+from translate import convert_to_audiobook_script, download_audio
 
 app = FastAPI()
 
@@ -58,8 +58,13 @@ async def telegram(request: Request):
     if not chat_id or not text:
         return {"status": "ignored"}
 
-    entities = message.get("entities", [])
-    command, args = parse_command(text, entities)
+    # Treat bare URLs as /tts commands
+    if text.startswith("http://") or text.startswith("https://"):
+        command = "/tts"
+        args = text
+    else:
+        entities = message.get("entities", [])
+        command, args = parse_command(text, entities)
 
     if command == "/start":
         send_message(chat_id, "Send /tts your text\nExample: /tts Hello world")
@@ -67,19 +72,26 @@ async def telegram(request: Request):
 
     if command == "/tts":
         if not args:
-            send_message(chat_id, "Usage: /tts Hello world")
+            send_message(chat_id, "Usage: /tts Hello world\nor: /tts https://youtube.com/...")
             return {"status": "success"}
+
+        send_message(chat_id, "Processing...")
 
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
             audio_file = tmp.name
-        with tempfile.NamedTemporaryFile(suffix=".txt", mode="w", delete=False, encoding="utf-8") as tmp:
-            tmp.write(args)
-            input_txt = tmp.name
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
             script_txt = tmp.name
+        input_file = None
 
         try:
-            convert_to_audiobook_script(input_txt, script_txt)
+            if args.startswith("http://") or args.startswith("https://"):
+                input_file = download_audio(args)
+            else:
+                with tempfile.NamedTemporaryFile(suffix=".txt", mode="w", delete=False, encoding="utf-8") as tmp:
+                    tmp.write(args)
+                    input_file = tmp.name
+
+            convert_to_audiobook_script(input_file, script_txt)
             script = open(script_txt, encoding="utf-8").read().strip()
 
             if not script:
@@ -96,8 +108,8 @@ async def telegram(request: Request):
                     files={"voice": f}
                 )
         finally:
-            for f in (input_txt, script_txt, audio_file):
-                if os.path.exists(f):
+            for f in (input_file, script_txt, audio_file):
+                if f and os.path.exists(f):
                     os.remove(f)
 
         if response.status_code == 200:

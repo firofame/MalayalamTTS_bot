@@ -2,3 +2,4 @@ fastapi[all]
 requests
 edge-tts
 google-genai
+yt-dlp
