@@ -1,28 +1,33 @@
 import os
 import tempfile
 import requests
-import edge_tts
 from fastapi import FastAPI, Request
 from translate import convert_to_audiobook_script, download_audio
+from tts import init_browser, close_browser, generate_tts
 
 app = FastAPI()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-VOICE = "en-US-AvaMultilingualNeural"
 
 
 @app.on_event("startup")
-def setup_commands():
+async def startup():
     requests.post(
         f"{TELEGRAM_API_URL}/setMyCommands",
         json={
             "commands": [
                 {"command": "start", "description": "Start the bot"},
-                {"command": "tts", "description": "Translate and convert text to Malayalam speech"},
+                {"command": "tts", "description": "Translate and convert text to speech"},
             ]
         }
     )
+    await init_browser()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await close_browser()
 
 
 def send_message(chat_id: int, text: str):
@@ -67,7 +72,7 @@ async def telegram(request: Request):
         command, args = parse_command(text, entities)
 
     if command == "/start":
-        send_message(chat_id, "Send /tts your text\nExample: /tts Hello world")
+        send_message(chat_id, "Send /tts your text\nExample: /tts Hello world\nor share a URL directly")
         return {"status": "success"}
 
     if command == "/tts":
@@ -98,8 +103,8 @@ async def telegram(request: Request):
                 send_message(chat_id, "Translation failed. Please try again.")
                 return {"status": "error"}
 
-            communicate = edge_tts.Communicate(script, VOICE)
-            await communicate.save(audio_file)
+            from pathlib import Path
+            await generate_tts(script, Path(audio_file))
 
             with open(audio_file, "rb") as f:
                 response = requests.post(
@@ -107,6 +112,9 @@ async def telegram(request: Request):
                     data={"chat_id": chat_id},
                     files={"voice": f}
                 )
+        except Exception as e:
+            send_message(chat_id, f"Error: {e}")
+            return {"status": "error"}
         finally:
             for f in (input_file, script_txt, audio_file):
                 if f and os.path.exists(f):
