@@ -1,6 +1,7 @@
 import os
 import tempfile
 import time
+import asyncio
 import requests
 import edge_tts
 from fastapi import FastAPI, Request
@@ -83,7 +84,6 @@ def _process_tts(chat_id: int, args: str):
         progress_msg_id = None
 
     input_file = None
-    script_txt = None
     audio_file = None
 
     try:
@@ -147,7 +147,6 @@ def _process_tts(chat_id: int, args: str):
             audio_file = tmp.name
 
         communicate = edge_tts.Communicate(malayalam_text, VOICE)
-        import asyncio
         asyncio.get_event_loop().run_until_complete(communicate.save(audio_file))
 
         with open(audio_file, "rb") as f:
@@ -167,7 +166,7 @@ def _process_tts(chat_id: int, args: str):
         else:
             send_message(chat_id, f"❌ Error: {error_msg}")
     finally:
-        for f in (input_file, script_txt, audio_file):
+        for f in (input_file, audio_file):
             if f and os.path.exists(f):
                 os.remove(f)
 
