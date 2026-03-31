@@ -24,10 +24,14 @@ def _parse_yt_dlp_info(info: dict) -> dict:
     else:
         content_type = "Post"
 
+    # Check if the post has video/audio content
+    has_video = info.get("is_video", False) or info.get("has_audio", False)
+
     return {
         "caption": caption,
         "author": author,
         "content_type": content_type,
+        "has_video": has_video,
     }
 
 

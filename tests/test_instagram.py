@@ -12,11 +12,13 @@ def test_parse_yt_dlp_info_with_caption():
         "uploader": "testuser",
         "extractor_key": "Instagram",
         "_type": "url",
+        "is_video": False,
     }
     result = _parse_yt_dlp_info(info)
     assert result["caption"] == "Hello world! #test"
     assert result["author"] == "testuser"
     assert result["content_type"] == "Post"
+    assert result["has_video"] is False
 
 
 def test_parse_yt_dlp_info_reel():
@@ -25,11 +27,13 @@ def test_parse_yt_dlp_info_reel():
         "uploader": "reelcreator",
         "extractor_key": "Instagram",
         "product_type": "clips",
+        "is_video": True,
     }
     result = _parse_yt_dlp_info(info)
     assert result["caption"] is None
     assert result["author"] == "reelcreator"
     assert result["content_type"] == "Reel"
+    assert result["has_video"] is True
 
 
 def test_parse_yt_dlp_info_story():
@@ -37,10 +41,38 @@ def test_parse_yt_dlp_info_story():
         "description": "Story text here",
         "uploader": "storyuser",
         "product_type": "story",
+        "is_video": True,
     }
     result = _parse_yt_dlp_info(info)
     assert result["caption"] == "Story text here"
     assert result["content_type"] == "Story"
+    assert result["has_video"] is True
+
+
+def test_parse_yt_dlp_info_static_post_with_caption():
+    """Static image post with caption — caption should be usable."""
+    info = {
+        "description": "Beautiful sunset 🌅",
+        "uploader": "photographer",
+        "is_video": False,
+    }
+    result = _parse_yt_dlp_info(info)
+    assert result["caption"] == "Beautiful sunset 🌅"
+    assert result["content_type"] == "Post"
+    assert result["has_video"] is False
+
+
+def test_parse_yt_dlp_info_video_post_with_caption():
+    """Video post with caption — caption should NOT be trusted (has_video=True)."""
+    info = {
+        "description": "Check out my new video! #viral",
+        "uploader": "creator",
+        "is_video": True,
+    }
+    result = _parse_yt_dlp_info(info)
+    assert result["caption"] == "Check out my new video! #viral"
+    assert result["content_type"] == "Post"
+    assert result["has_video"] is True
 
 
 def test_extract_instagram_metadata_success():

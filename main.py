@@ -111,7 +111,14 @@ def _run_tts_sync(chat_id: int, args: str):
                 if progress_msg_id:
                     edit_message(chat_id, progress_msg_id, "⚠️ Couldn't extract post metadata, trying audio extraction...")
 
-        if caption:
+        # Use caption only for static posts (no video/audio).
+        # Reels and stories always need audio transcription — captions are often
+        # clickbait, hashtags, or unrelated to the spoken content.
+        content_type = metadata.get("content_type", "") if metadata else ""
+        has_video = metadata.get("has_video", False) if metadata else False
+        use_caption = caption and content_type == "Post" and not has_video
+
+        if use_caption:
             if progress_msg_id:
                 edit_message(chat_id, progress_msg_id, "🌐 Translating...")
             malayalam_text = translate_text(caption)
