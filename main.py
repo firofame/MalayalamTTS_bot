@@ -17,6 +17,16 @@ VOICE = "en-US-AvaMultilingualNeural"
 # Simple rate limiting: chat_id -> last_request_time
 _rate_limits = {}
 RATE_LIMIT_SECONDS = 30
+_MAX_RATE_LIMIT_ENTRIES = 1000
+
+
+def _cleanup_rate_limits():
+    """Remove oldest entries if the dict grows too large."""
+    if len(_rate_limits) > _MAX_RATE_LIMIT_ENTRIES:
+        # Keep only the 500 most recent entries
+        sorted_items = sorted(_rate_limits.items(), key=lambda x: x[1], reverse=True)
+        _rate_limits.clear()
+        _rate_limits.update(sorted_items[:500])
 
 
 @app.on_event("startup")
@@ -56,6 +66,7 @@ def check_rate_limit(chat_id: int) -> bool:
     if now - last < RATE_LIMIT_SECONDS:
         return True
     _rate_limits[chat_id] = now
+    _cleanup_rate_limits()
     return False
 
 
@@ -148,11 +159,12 @@ def _run_tts_sync(chat_id: int, args: str):
         communicate = edge_tts.Communicate(malayalam_text, VOICE)
         asyncio.run(communicate.save(audio_file))
 
-        voice_resp = requests.post(
-            f"{TELEGRAM_API_URL}/sendVoice",
-            data={"chat_id": chat_id},
-            files={"voice": open(audio_file, "rb")},
-        )
+        with open(audio_file, "rb") as f:
+            voice_resp = requests.post(
+                f"{TELEGRAM_API_URL}/sendVoice",
+                data={"chat_id": chat_id},
+                files={"voice": f},
+            )
         if voice_resp.status_code != 200:
             if progress_msg_id:
                 edit_message(chat_id, progress_msg_id, f"❌ Audio send failed: {voice_resp.text}")

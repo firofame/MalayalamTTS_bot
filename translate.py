@@ -64,7 +64,8 @@ def transcribe_audio(audio_path: str) -> str:
         return response.text.strip() if response.text else ""
     finally:
         try:
-            client.files.delete(name=myfile.name)
+            if myfile.name:
+                client.files.delete(name=myfile.name)
         except Exception:
             pass  # Best-effort cleanup; don't fail transcription on cleanup error
 
@@ -88,6 +89,7 @@ def download_audio(url: str) -> str:
         ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template, url],
         capture_output=True,
         text=True,
+        timeout=120,
     )
 
     if result.returncode != 0:
