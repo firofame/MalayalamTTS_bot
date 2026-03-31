@@ -2,4 +2,4 @@ services:
   - type: web
     name: malayalam-tts-bot
     runtime: docker
-    autoDeploy: false
+    dockerfilePath: ./Dockerfile
