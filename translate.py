@@ -21,7 +21,7 @@ AUDIO_TRANSCRIPTION_PROMPT = (
 )
 
 
-def _get_genai_client():
+def _get_genai_client() -> genai.Client:
     """Create and return a Gemini API client."""
     return genai.Client()
 
@@ -54,16 +54,19 @@ def transcribe_audio(audio_path: str) -> str:
         Translated Malayalam text, or empty string on failure.
     """
     client = _get_genai_client()
-    print(f"Uploading audio file {audio_path}...")
     myfile = client.files.upload(file=str(audio_path))
-    print(f"Transcribing and translating to Malayalam...")
-
-    response = client.models.generate_content(
-        model="models/gemini-3.1-flash-lite-preview",
-        contents=[AUDIO_TRANSCRIPTION_PROMPT, myfile],
-        config={"temperature": 0.1},
-    )
-    return response.text.strip() if response.text else ""
+    try:
+        response = client.models.generate_content(
+            model="models/gemini-3.1-flash-lite-preview",
+            contents=[AUDIO_TRANSCRIPTION_PROMPT, myfile],
+            config={"temperature": 0.1},
+        )
+        return response.text.strip() if response.text else ""
+    finally:
+        try:
+            client.files.delete(name=myfile.name)
+        except Exception:
+            pass  # Best-effort cleanup; don't fail transcription on cleanup error
 
 
 def download_audio(url: str) -> str:
@@ -75,13 +78,12 @@ def download_audio(url: str) -> str:
     Returns:
         Path to downloaded mp3 file.
     Raises:
-        SystemExit if yt-dlp fails.
+        RuntimeError if yt-dlp fails or no file is found.
     """
     output_dir = Path("downloads")
     output_dir.mkdir(exist_ok=True)
     output_template = str(output_dir / "%(title)s.%(ext)s")
 
-    print(f"Downloading audio from {url}...")
     result = subprocess.run(
         ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template, url],
         capture_output=True,
@@ -89,8 +91,7 @@ def download_audio(url: str) -> str:
     )
 
     if result.returncode != 0:
-        print(f"Error: yt-dlp failed:\n{result.stderr}")
-        sys.exit(1)
+        raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()}")
 
     combined = result.stdout + result.stderr
     for line in combined.splitlines():
@@ -103,11 +104,10 @@ def download_audio(url: str) -> str:
     if mp3s:
         return str(mp3s[0])
 
-    print("Error: Could not find downloaded audio file")
-    sys.exit(1)
+    raise RuntimeError("Could not find downloaded audio file")
 
 
-def convert_to_audiobook_script(input_file: str, output_file: str):
+def convert_to_audiobook_script(input_file: str, output_file: str) -> None:
     """Legacy function — transcribes/translates and saves to file.
 
     Kept for backward compatibility with CLI usage.
