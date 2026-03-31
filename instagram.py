@@ -1,7 +1,6 @@
 """Instagram content extraction — fetches caption and metadata without downloading audio."""
 import subprocess
 import json
-from pathlib import Path
 
 
 def _parse_yt_dlp_info(info: dict) -> dict:
