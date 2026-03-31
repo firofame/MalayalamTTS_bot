@@ -111,12 +111,16 @@ def _run_tts_sync(chat_id: int, args: str):
                 if progress_msg_id:
                     edit_message(chat_id, progress_msg_id, "⚠️ Couldn't extract post metadata, trying audio extraction...")
 
-        # Use caption only for static posts (no video/audio).
-        # Reels and stories always need audio transcription — captions are often
-        # clickbait, hashtags, or unrelated to the spoken content.
+        # Detect if this is a reel/video from the URL first (most reliable),
+        # then fall back to metadata. Instagram's yt-dlp metadata is inconsistent
+        # — product_type and is_video are not always returned.
+        url_is_video = "/reel/" in args or "/tv/" in args
         content_type = metadata.get("content_type", "") if metadata else ""
         has_video = metadata.get("has_video", False) if metadata else False
-        use_caption = caption and content_type == "Post" and not has_video
+        is_video_content = url_is_video or has_video or content_type in ("Reel", "Story")
+
+        # Only use caption for static image posts. Everything else needs audio.
+        use_caption = caption and not is_video_content
 
         if use_caption:
             if progress_msg_id:
