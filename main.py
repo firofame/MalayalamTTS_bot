@@ -75,13 +75,15 @@ def parse_command(text: str, entities: list | None = None):
     return None, text
 
 
-def _process_tts(chat_id: int, args: str):
-    """Core TTS processing logic — called from the webhook handler."""
-    resp = send_message(chat_id, "📥 Downloading...")
-    progress_msg_id = resp.get("result", {}).get("message_id")
+def _run_tts_sync(chat_id: int, args: str):
+    """Core TTS processing logic — runs in a background thread.
 
-    if not progress_msg_id:
-        progress_msg_id = None
+    This function is synchronous and blocks its thread, but not the
+    FastAPI event loop.  All Telegram API calls here use the blocking
+    ``requests`` library, which is fine inside a dedicated thread.
+    """
+    resp = send_message(chat_id, "📥 Downloading...")
+    progress_msg_id = resp.get("result", {}).get("message_id") or None
 
     input_file = None
     audio_file = None
@@ -112,9 +114,6 @@ def _process_tts(chat_id: int, args: str):
         else:
             if progress_msg_id:
                 edit_message(chat_id, progress_msg_id, "🌐 Translating...")
-            with tempfile.NamedTemporaryFile(suffix=".txt", mode="w", delete=False, encoding="utf-8") as tmp:
-                tmp.write(args)
-                input_file = tmp.name
             malayalam_text = translate_text(args)
 
         if not malayalam_text:
@@ -147,14 +146,17 @@ def _process_tts(chat_id: int, args: str):
             audio_file = tmp.name
 
         communicate = edge_tts.Communicate(malayalam_text, VOICE)
-        asyncio.get_event_loop().run_until_complete(communicate.save(audio_file))
+        asyncio.run(communicate.save(audio_file))
 
-        with open(audio_file, "rb") as f:
-            requests.post(
-                f"{TELEGRAM_API_URL}/sendVoice",
-                data={"chat_id": chat_id},
-                files={"voice": f}
-            )
+        voice_resp = requests.post(
+            f"{TELEGRAM_API_URL}/sendVoice",
+            data={"chat_id": chat_id},
+            files={"voice": open(audio_file, "rb")},
+        )
+        if voice_resp.status_code != 200:
+            if progress_msg_id:
+                edit_message(chat_id, progress_msg_id, f"❌ Audio send failed: {voice_resp.text}")
+            return
 
         if progress_msg_id:
             edit_message(chat_id, progress_msg_id, "✅ Done!")
@@ -201,7 +203,7 @@ async def telegram(request: Request):
             send_message(chat_id, "⏳ Please wait before sending another request.")
             return {"status": "success"}
 
-        _process_tts(chat_id, args)
+        await asyncio.to_thread(_run_tts_sync, chat_id, args)
         return {"status": "success"}
 
     send_message(chat_id, "Unknown command. Try /start or /tts Hello")
