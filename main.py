@@ -42,19 +42,27 @@ def setup_commands():
     )
 
 
-def send_message(chat_id: int, text: str) -> dict:
+def send_message(chat_id: int, text: str, reply_to_message_id: int | None = None, parse_mode: str | None = None) -> dict:
+    data = {"chat_id": chat_id, "text": text}
+    if reply_to_message_id:
+        data["reply_to_message_id"] = reply_to_message_id
+    if parse_mode:
+        data["parse_mode"] = parse_mode
     resp = requests.post(
         f"{TELEGRAM_API_URL}/sendMessage",
-        data={"chat_id": chat_id, "text": text}
+        data=data
     )
     return resp.json() if resp.status_code == 200 else {}
 
 
-def edit_message(chat_id: int, message_id: int, text: str) -> dict:
+def edit_message(chat_id: int, message_id: int, text: str, parse_mode: str | None = None) -> dict:
     """Edit an existing message in place."""
+    data = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if parse_mode:
+        data["parse_mode"] = parse_mode
     resp = requests.post(
         f"{TELEGRAM_API_URL}/editMessageText",
-        data={"chat_id": chat_id, "message_id": message_id, "text": text}
+        data=data
     )
     return resp.json() if resp.status_code == 200 else {}
 
@@ -86,14 +94,14 @@ def parse_command(text: str, entities: list | None = None):
     return None, text
 
 
-def _run_tts_sync(chat_id: int, args: str):
+def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = None):
     """Core TTS processing logic — runs in a background thread.
 
     This function is synchronous and blocks its thread, but not the
     FastAPI event loop.  All Telegram API calls here use the blocking
     ``requests`` library, which is fine inside a dedicated thread.
     """
-    resp = send_message(chat_id, "📥 Downloading...")
+    resp = send_message(chat_id, "📥 Downloading...", reply_to_message_id=reply_to_message_id)
     progress_msg_id = resp.get("result", {}).get("message_id") or None
 
     audio_file = None
@@ -109,13 +117,8 @@ def _run_tts_sync(chat_id: int, args: str):
             if progress_msg_id:
                 edit_message(chat_id, progress_msg_id, "❌ Translation service is busy. Please try again.")
             else:
-                send_message(chat_id, "❌ Translation service is busy. Please try again.")
+                send_message(chat_id, "❌ Translation service is busy. Please try again.", reply_to_message_id=reply_to_message_id)
             return
-
-        max_len = 4000
-        chunks = [malayalam_text[i:i+max_len] for i in range(0, len(malayalam_text), max_len)]
-        for chunk in chunks:
-            send_message(chat_id, chunk)
 
         if progress_msg_id:
             edit_message(chat_id, progress_msg_id, "🎙️ Generating audio...")
@@ -127,9 +130,16 @@ def _run_tts_sync(chat_id: int, args: str):
         asyncio.run(communicate.save(audio_file))
 
         with open(audio_file, "rb") as f:
+            voice_data = {
+                "chat_id": chat_id,
+                "caption": malayalam_text[:1024],
+                "parse_mode": "HTML",
+            }
+            if reply_to_message_id:
+                voice_data["reply_to_message_id"] = reply_to_message_id
             voice_resp = requests.post(
                 f"{TELEGRAM_API_URL}/sendVoice",
-                data={"chat_id": chat_id},
+                data=voice_data,
                 files={"voice": f},
             )
         if voice_resp.status_code != 200:
@@ -143,9 +153,9 @@ def _run_tts_sync(chat_id: int, args: str):
     except Exception as e:
         error_msg = str(e)
         if progress_msg_id:
-            edit_message(chat_id, progress_msg_id, f"❌ Error: {error_msg}")
+            edit_message(chat_id, progress_msg_id, f"<b>❌ Error:</b> {error_msg}", parse_mode="HTML")
         else:
-            send_message(chat_id, f"❌ Error: {error_msg}")
+            send_message(chat_id, f"<b>❌ Error:</b> {error_msg}", reply_to_message_id=reply_to_message_id, parse_mode="HTML")
     finally:
         if audio_file and os.path.exists(audio_file):
             os.remove(audio_file)
@@ -169,20 +179,48 @@ async def telegram(request: Request):
         command, args = parse_command(text, entities)
 
     if command == "/start":
-        send_message(chat_id, "Send /tts your text\nExample: /tts Hello world\n\nPaste any Instagram link to translate it to Malayalam.")
+        send_message(
+            chat_id,
+            "<b>👋 Welcome to Malayalam TTS Bot!</b>\n\n"
+            "I can translate text and Instagram content to Malayalam speech.\n\n"
+            "<b>How to use:</b>\n"
+            "• <code>/tts Hello world</code> — translate text to speech\n"
+            "• Paste any Instagram/YouTube link — I'll extract audio, transcribe & translate\n"
+            "• Send any text — I'll translate it to Malayalam\n\n"
+            "Send me anything to get started!",
+            reply_to_message_id=message.get("message_id"),
+            parse_mode="HTML"
+        )
         return {"status": "success"}
 
     if command == "/tts":
         if not args:
-            send_message(chat_id, "Usage: /tts Hello world\nor: /tts https://instagram.com/...")
+            send_message(
+                chat_id,
+                "<b>Usage:</b>\n"
+                "• <code>/tts Hello world</code> — translate text to Malayalam speech\n"
+                "• <code>/tts https://instagram.com/...</code> — extract & translate audio",
+                reply_to_message_id=message.get("message_id"),
+                parse_mode="HTML"
+            )
             return {"status": "success"}
 
         if check_rate_limit(chat_id):
-            send_message(chat_id, "⏳ Please wait before sending another request.")
+            send_message(
+                chat_id,
+                "<b>⏳ Please wait</b> before sending another request.",
+                reply_to_message_id=message.get("message_id"),
+                parse_mode="HTML"
+            )
             return {"status": "success"}
 
-        await asyncio.to_thread(_run_tts_sync, chat_id, args)
+        await asyncio.to_thread(_run_tts_sync, chat_id, args, message.get("message_id"))
         return {"status": "success"}
 
-    send_message(chat_id, "Unknown command. Try /start or /tts Hello")
+    send_message(
+        chat_id,
+        "<b>Unknown command.</b> Try /start or /tts Hello",
+        reply_to_message_id=message.get("message_id"),
+        parse_mode="HTML"
+    )
     return {"status": "success"}
