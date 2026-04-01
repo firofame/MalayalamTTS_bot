@@ -16,6 +16,7 @@ def hf_download():
     from huggingface_hub import hf_hub_download
 
     downloads = [
+        # Qwen Image Edit models
         (
             "Comfy-Org/Qwen-Image-Edit_ComfyUI",
             "split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors",
@@ -35,6 +36,27 @@ def hf_download():
             "Comfy-Org/Qwen-Image_ComfyUI",
             "split_files/vae/qwen_image_vae.safetensors",
             "/root/comfy/ComfyUI/models/vae/qwen_image_vae.safetensors",
+        ),
+        # Z-Image Turbo models
+        (
+            "Comfy-Org/z_image_turbo",
+            "split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+            "/root/comfy/ComfyUI/models/diffusion_models/z_image_turbo_bf16.safetensors",
+        ),
+        (
+            "tarn59/pixel_art_style_lora_z_image_turbo",
+            "pixel_art_style_z_image_turbo.safetensors",
+            "/root/comfy/ComfyUI/models/loras/pixel_art_style_z_image_turbo.safetensors",
+        ),
+        (
+            "Comfy-Org/z_image_turbo",
+            "split_files/text_encoders/qwen_3_4b.safetensors",
+            "/root/comfy/ComfyUI/models/text_encoders/qwen_3_4b.safetensors",
+        ),
+        (
+            "Comfy-Org/z_image_turbo",
+            "split_files/vae/ae.safetensors",
+            "/root/comfy/ComfyUI/models/vae/ae.safetensors",
         ),
     ]
 
