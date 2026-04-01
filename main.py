@@ -6,7 +6,6 @@ import requests
 import edge_tts
 from fastapi import FastAPI, Request
 from translate import translate_text, transcribe_audio, download_audio
-from instagram import extract_instagram_metadata
 
 app = FastAPI()
 
@@ -100,33 +99,7 @@ def _run_tts_sync(chat_id: int, args: str):
     audio_file = None
 
     try:
-        caption = None
-        metadata = None
-
         if args.startswith("http://") or args.startswith("https://"):
-            try:
-                metadata = extract_instagram_metadata(args)
-                caption = metadata.get("caption")
-            except RuntimeError:
-                if progress_msg_id:
-                    edit_message(chat_id, progress_msg_id, "⚠️ Couldn't extract post metadata, trying audio extraction...")
-
-        # Detect if this is a reel/video from the URL first (most reliable),
-        # then fall back to metadata. Instagram's yt-dlp metadata is inconsistent
-        # — product_type and is_video are not always returned.
-        url_is_video = "/reel/" in args or "/tv/" in args
-        content_type = metadata.get("content_type", "") if metadata else ""
-        has_video = metadata.get("has_video", False) if metadata else False
-        is_video_content = url_is_video or has_video or content_type in ("Reel", "Story")
-
-        # Only use caption for static image posts. Everything else needs audio.
-        use_caption = caption and not is_video_content
-
-        if use_caption:
-            if progress_msg_id:
-                edit_message(chat_id, progress_msg_id, "🌐 Translating...")
-            malayalam_text = translate_text(caption)
-        elif args.startswith("http://") or args.startswith("https://"):
             if progress_msg_id:
                 edit_message(chat_id, progress_msg_id, "📥 Downloading audio...")
             input_file = download_audio(args)
@@ -145,16 +118,7 @@ def _run_tts_sync(chat_id: int, args: str):
                 send_message(chat_id, "❌ Translation service is busy. Please try again.")
             return
 
-        author = metadata.get("author", "") if metadata else ""
-        content_type = metadata.get("content_type", "") if metadata else ""
-
-        if metadata and caption:
-            header = f"📱 Instagram {content_type} by @{author}" if author else f"📱 Instagram {content_type}"
-            text_message = f"{header}\n\n{malayalam_text}"
-        elif metadata:
-            text_message = f"🎙️ Audio transcribed and translated\n\n{malayalam_text}"
-        else:
-            text_message = malayalam_text
+        text_message = malayalam_text
 
         max_len = 4000
         chunks = [text_message[i:i+max_len] for i in range(0, len(text_message), max_len)]
