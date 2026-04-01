@@ -1,11 +1,12 @@
 import os
+import subprocess
 import tempfile
 import time
 import asyncio
 import requests
 import edge_tts
 from fastapi import FastAPI, Request
-from translate import translate_text, transcribe_audio, download_audio
+from translate import convert_to_malayalam
 
 app = FastAPI()
 
@@ -30,6 +31,13 @@ def _cleanup_rate_limits():
 
 @app.on_event("startup")
 def setup_commands():
+    # Verify yt-dlp is available
+    try:
+        result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=5)
+        print(f"yt-dlp version: {result.stdout.strip()}")
+    except Exception as e:
+        print(f"WARNING: yt-dlp not found: {e}")
+
     requests.post(
         f"{TELEGRAM_API_URL}/setMyCommands",
         json={
@@ -95,21 +103,14 @@ def _run_tts_sync(chat_id: int, args: str):
     resp = send_message(chat_id, "📥 Downloading...")
     progress_msg_id = resp.get("result", {}).get("message_id") or None
 
-    input_file = None
     audio_file = None
 
     try:
-        if args.startswith("http://") or args.startswith("https://"):
-            if progress_msg_id:
-                edit_message(chat_id, progress_msg_id, "📥 Downloading audio...")
-            input_file = download_audio(args)
-            if progress_msg_id:
-                edit_message(chat_id, progress_msg_id, "🌐 Transcribing and translating...")
-            malayalam_text = transcribe_audio(input_file)
-        else:
-            if progress_msg_id:
-                edit_message(chat_id, progress_msg_id, "🌐 Translating...")
-            malayalam_text = translate_text(args)
+        if progress_msg_id:
+            status = "📥 Downloading and translating..." if args.startswith("http") else "🌐 Translating..."
+            edit_message(chat_id, progress_msg_id, status)
+
+        malayalam_text = convert_to_malayalam(args)
 
         if not malayalam_text:
             if progress_msg_id:
@@ -118,10 +119,8 @@ def _run_tts_sync(chat_id: int, args: str):
                 send_message(chat_id, "❌ Translation service is busy. Please try again.")
             return
 
-        text_message = malayalam_text
-
         max_len = 4000
-        chunks = [text_message[i:i+max_len] for i in range(0, len(text_message), max_len)]
+        chunks = [malayalam_text[i:i+max_len] for i in range(0, len(malayalam_text), max_len)]
         for chunk in chunks:
             send_message(chat_id, chunk)
 
@@ -155,9 +154,8 @@ def _run_tts_sync(chat_id: int, args: str):
         else:
             send_message(chat_id, f"❌ Error: {error_msg}")
     finally:
-        for f in (input_file, audio_file):
-            if f and os.path.exists(f):
-                os.remove(f)
+        if audio_file and os.path.exists(audio_file):
+            os.remove(audio_file)
 
 
 @app.post("/telegram")

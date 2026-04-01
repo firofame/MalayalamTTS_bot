@@ -1,86 +1,16 @@
 """Translation and TTS pipeline — independent functions for text translation, audio transcription, and speech synthesis."""
 import sys
-import os
 import subprocess
 from pathlib import Path
 from google import genai
 
 AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma', '.opus', '.webm'}
 
-# Separate prompts for text vs audio
-TEXT_TRANSLATION_PROMPT = (
-    "Detect the source language of the following text and translate it to Malayalam.\n"
-    "Preserve emojis, line breaks, and formatting.\n"
-    "If the text contains mixed languages, translate everything to Malayalam.\n"
-    "Return only the translated text, no explanations or introductions.\n"
-)
-
-AUDIO_TRANSCRIPTION_PROMPT = (
-    "Transcribe the audio and translate the result to Malayalam.\n"
-    "Return only the translated text, no explanations or introductions.\n"
-)
-
-
-def _get_genai_client() -> genai.Client:
-    """Create and return a Gemini API client."""
-    return genai.Client()
-
-
-def translate_text(text: str) -> str:
-    """Translate text to Malayalam using Gemini.
-
-    Args:
-        text: Source text in any language (commonly Arabic).
-
-    Returns:
-        Translated Malayalam text, or empty string on failure.
-    """
-    client = _get_genai_client()
-    response = client.models.generate_content(
-        model="models/gemini-3.1-flash-lite-preview",
-        contents=[TEXT_TRANSLATION_PROMPT, f"Input Text to Convert:\n\n{text}"],
-        config={"temperature": 0.1},
-    )
-    return response.text.strip() if response.text else ""
-
-
-def transcribe_audio(audio_path: str) -> str:
-    """Transcribe audio file and translate to Malayalam using Gemini.
-
-    Args:
-        audio_path: Path to audio file.
-
-    Returns:
-        Translated Malayalam text, or empty string on failure.
-    """
-    client = _get_genai_client()
-    myfile = client.files.upload(file=str(audio_path))
-    try:
-        response = client.models.generate_content(
-            model="models/gemini-3.1-flash-lite-preview",
-            contents=[AUDIO_TRANSCRIPTION_PROMPT, myfile],
-            config={"temperature": 0.1},
-        )
-        return response.text.strip() if response.text else ""
-    finally:
-        try:
-            if myfile.name:
-                client.files.delete(name=myfile.name)
-        except Exception:
-            pass  # Best-effort cleanup; don't fail transcription on cleanup error
+SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
 
 
 def download_audio(url: str) -> str:
-    """Download audio from URL using yt-dlp and return the file path.
-
-    Args:
-        url: YouTube, Instagram, or other supported URL.
-
-    Returns:
-        Path to downloaded mp3 file.
-    Raises:
-        RuntimeError if yt-dlp fails or no file is found.
-    """
+    """Download audio from URL using yt-dlp and return the file path."""
     output_dir = Path("downloads")
     output_dir.mkdir(exist_ok=True)
     output_template = str(output_dir / "%(title)s.%(ext)s")
@@ -109,30 +39,51 @@ def download_audio(url: str) -> str:
     raise RuntimeError("Could not find downloaded audio file")
 
 
-def convert_to_audiobook_script(input_file: str, output_file: str) -> None:
-    """Legacy function — transcribes/translates and saves to file.
+def convert_to_malayalam(input_path: str) -> str:
+    """Translate text or transcribe+translate audio to Malayalam.
 
-    Kept for backward compatibility with CLI usage.
+    Accepts a file path or URL. URLs are downloaded first via yt-dlp.
+
+    Returns the translated Malayalam text.
+    Raises RuntimeError on failure.
     """
-    input_path = Path(input_file)
-    if not input_path.exists():
-        print(f"Error: {input_file} not found")
-        return
+    if input_path.startswith("http://") or input_path.startswith("https://"):
+        input_path = download_audio(input_path)
 
-    is_audio = input_path.suffix.lower() in AUDIO_EXTENSIONS
+    path = Path(input_path)
+    if not path.exists():
+        raise RuntimeError(f"File not found: {input_path}")
 
-    if is_audio:
-        result = transcribe_audio(input_file)
+    client = genai.Client()
+    model = "models/gemini-3.1-flash-lite-preview"
+    config = {"temperature": 0.1}
+
+    if path.suffix.lower() in AUDIO_EXTENSIONS:
+        myfile = client.files.upload(file=str(path))
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=[SYSTEM_PROMPT, myfile],
+                config=config,
+            )
+        finally:
+            try:
+                if myfile.name:
+                    client.files.delete(name=myfile.name)
+            except Exception:
+                pass
     else:
-        source_text = input_path.read_text(encoding="utf-8")
-        result = translate_text(source_text)
+        source_text = path.read_text(encoding="utf-8")
+        response = client.models.generate_content(
+            model=model,
+            contents=[SYSTEM_PROMPT, f"Input Text to Convert:\n\n{source_text}"],
+            config=config,
+        )
 
-    if not result:
-        print("Error: Gemini returned empty response.")
-        return
+    if not response.text:
+        raise RuntimeError("Gemini returned empty response")
 
-    Path(output_file).write_text(result, encoding="utf-8")
-    print(f"✅ Success! Saved audiobook script to {output_file}")
+    return response.text.strip()
 
 
 if __name__ == "__main__":
@@ -142,13 +93,13 @@ if __name__ == "__main__":
         sys.exit(1)
 
     input_arg = sys.argv[1]
+    result = convert_to_malayalam(input_arg)
 
     if input_arg.startswith("http://") or input_arg.startswith("https://"):
-        input_file = download_audio(input_arg)
-        default_name = Path(input_file).stem + "_audiobook.txt"
+        default_name = "audiobook.txt"
     else:
-        input_file = input_arg
-        default_name = Path(input_file).stem + "_audiobook.txt"
+        default_name = Path(input_arg).stem + "_audiobook.txt"
 
-    output_file = sys.argv[2] if len(sys.argv) > 2 else str(Path(input_file).parent / default_name)
-    convert_to_audiobook_script(input_file, output_file)
+    output_file = sys.argv[2] if len(sys.argv) > 2 else default_name
+    Path(output_file).write_text(result, encoding="utf-8")
+    print(f"✅ Success! Saved to {output_file}")
