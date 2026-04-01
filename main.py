@@ -31,13 +31,6 @@ def _cleanup_rate_limits():
 
 @app.on_event("startup")
 def setup_commands():
-    # Verify yt-dlp is available
-    try:
-        result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=5)
-        print(f"yt-dlp version: {result.stdout.strip()}")
-    except Exception as e:
-        print(f"WARNING: yt-dlp not found: {e}")
-
     requests.post(
         f"{TELEGRAM_API_URL}/setMyCommands",
         json={

@@ -16,7 +16,7 @@ def download_audio(url: str) -> str:
     output_template = str(output_dir / "%(title)s.%(ext)s")
 
     result = subprocess.run(
-        ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template, url],
+        ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template, "--cookies", "/etc/secrets/cookies.txt", url],
         capture_output=True,
         text=True,
         timeout=120,
