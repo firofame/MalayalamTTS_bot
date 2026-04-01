@@ -1,6 +1,5 @@
 """Translation and TTS pipeline — independent functions for text translation, audio transcription, and speech synthesis."""
 import logging
-import os
 import sys
 from pathlib import Path
 from google import genai

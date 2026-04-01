@@ -1,6 +1,5 @@
 import logging
 import os
-import subprocess
 import tempfile
 import time
 import asyncio
@@ -71,7 +70,10 @@ def send_message(chat_id: int, text: str, reply_to_message_id: int | None = None
         f"{TELEGRAM_API_URL}/sendMessage",
         data=data
     )
-    return resp.json() if resp.status_code == 200 else {}
+    if resp.status_code != 200:
+        logger.error("sendMessage failed (%s): %s", resp.status_code, resp.text[:200])
+        return {}
+    return resp.json()
 
 
 def edit_message(chat_id: int, message_id: int, text: str, parse_mode: str | None = None) -> dict:
@@ -83,21 +85,29 @@ def edit_message(chat_id: int, message_id: int, text: str, parse_mode: str | Non
         f"{TELEGRAM_API_URL}/editMessageText",
         data=data
     )
-    return resp.json() if resp.status_code == 200 else {}
+    if resp.status_code != 200:
+        logger.error("editMessage failed (%s): %s", resp.status_code, resp.text[:200])
+        return {}
+    return resp.json()
 
 
 def send_chat_action(chat_id: int, action: str) -> None:
     """Send a chat action (typing, record_voice, etc.) to show activity."""
-    requests.post(
+    resp = requests.post(
         f"{TELEGRAM_API_URL}/sendChatAction",
         data={"chat_id": chat_id, "action": action}
     )
+    if resp.status_code != 200:
+        logger.error("sendChatAction failed (%s): %s", resp.status_code, resp.text[:200])
 
 
 def _chat_action_loop(chat_id: int, action: str, stop_event: threading.Event):
     """Send chat action every 4 seconds until stopped."""
     while not stop_event.is_set():
-        send_chat_action(chat_id, action)
+        try:
+            send_chat_action(chat_id, action)
+        except Exception:
+            logger.error("Error sending chat action", exc_info=True)
         stop_event.wait(4)
 
 
