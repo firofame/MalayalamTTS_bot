@@ -146,6 +146,9 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
     FastAPI event loop.  All Telegram API calls here use the blocking
     ``requests`` library, which is fine inside a dedicated thread.
     """
+    is_url = args.startswith("http")
+    logger.info("TTS started: chat_id=%s, args_len=%d, is_url=%s", chat_id, len(args), is_url)
+
     resp = send_message(chat_id, "📥 Downloading...", reply_to_message_id=reply_to_message_id)
     progress_msg_id = resp.get("result", {}).get("message_id") or None
 
@@ -160,10 +163,11 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
         action_thread.start()
 
         if progress_msg_id:
-            status = "📥 Downloading and translating..." if args.startswith("http") else "🌐 Translating..."
+            status = "📥 Downloading and translating..." if is_url else "🌐 Translating..."
             edit_message(chat_id, progress_msg_id, status)
 
         malayalam_text = convert_to_malayalam(args)
+        logger.info("Translation complete: chat_id=%s, text_len=%d", chat_id, len(malayalam_text))
 
         if not malayalam_text:
             if progress_msg_id:
@@ -188,6 +192,7 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
 
         communicate = edge_tts.Communicate(malayalam_text, VOICE)
         asyncio.run(communicate.save(audio_file))
+        logger.info("Audio generated: chat_id=%s", chat_id)
 
         with open(audio_file, "rb") as f:
             voice_data = {
@@ -203,15 +208,18 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
                 files={"voice": f},
             )
         if voice_resp.status_code != 200:
+            logger.error("sendVoice failed (%s): %s", voice_resp.status_code, voice_resp.text[:200])
             if progress_msg_id:
                 edit_message(chat_id, progress_msg_id, f"❌ Audio send failed: {voice_resp.text}")
             return
 
+        logger.info("Voice sent: chat_id=%s", chat_id)
         if progress_msg_id:
             edit_message(chat_id, progress_msg_id, "✅ Done!")
 
     except Exception as e:
         error_msg = str(e)
+        logger.error("TTS failed: chat_id=%s, error=%s", chat_id, error_msg)
         if progress_msg_id:
             edit_message(chat_id, progress_msg_id, f"<b>❌ Error:</b> {error_msg}", parse_mode="HTML")
         else:
@@ -222,6 +230,7 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
             action_thread.join()
         if audio_file and os.path.exists(audio_file):
             os.remove(audio_file)
+        logger.info("TTS complete: chat_id=%s", chat_id)
 
 
 @app.post("/telegram")
