@@ -1,12 +1,29 @@
 """Translation and TTS pipeline — independent functions for text translation, audio transcription, and speech synthesis."""
+import os
 import sys
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from google import genai
 
 AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma', '.opus', '.webm'}
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
+
+_COOKIES_SOURCE = "/etc/secrets/cookies.txt"
+
+
+def _get_cookies_arg() -> list[str]:
+    """Return yt-dlp cookies args, copying to a writable path if needed."""
+    if not Path(_COOKIES_SOURCE).exists():
+        return []
+    writable = os.path.join(tempfile.gettempdir(), "yt-dlp-cookies.txt")
+    try:
+        shutil.copy2(_COOKIES_SOURCE, writable)
+    except Exception:
+        return []
+    return ["--cookies", writable]
 
 
 def download_audio(url: str) -> str:
@@ -16,10 +33,12 @@ def download_audio(url: str) -> str:
     output_template = str(output_dir / "%(title)s.%(ext)s")
 
     print(f"[download_audio] Starting download: {url}")
-    print(f"[download_audio] Cookies: {Path('/etc/secrets/cookies.txt').exists()}")
+    cookies_args = _get_cookies_arg()
+    print(f"[download_audio] Cookies: {bool(cookies_args)}")
 
+    cmd = ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template] + cookies_args + [url]
     result = subprocess.run(
-        ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template, "--cookies", "/etc/secrets/cookies.txt", url],
+        cmd,
         capture_output=True,
         text=True,
         timeout=120,
