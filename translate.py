@@ -51,8 +51,10 @@ def convert_to_malayalam(input_path: str) -> str:
         input_path = download_audio(input_path)
 
     path = Path(input_path)
-    if not path.exists():
-        raise RuntimeError(f"File not found: {input_path}")
+    if path.exists():
+        is_audio = path.suffix.lower() in AUDIO_EXTENSIONS
+    else:
+        is_audio = False
 
     client = genai.Client()
     model = "models/gemini-3.1-flash-lite-preview"
@@ -72,11 +74,17 @@ def convert_to_malayalam(input_path: str) -> str:
                     client.files.delete(name=myfile.name)
             except Exception:
                 pass
-    else:
+    elif path.exists():
         source_text = path.read_text(encoding="utf-8")
         response = client.models.generate_content(
             model=model,
             contents=[SYSTEM_PROMPT, f"Input Text to Convert:\n\n{source_text}"],
+            config=config,
+        )
+    else:
+        response = client.models.generate_content(
+            model=model,
+            contents=[SYSTEM_PROMPT, f"Input Text to Convert:\n\n{input_path}"],
             config=config,
         )
 
