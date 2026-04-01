@@ -15,12 +15,19 @@ def download_audio(url: str) -> str:
     output_dir.mkdir(exist_ok=True)
     output_template = str(output_dir / "%(title)s.%(ext)s")
 
+    print(f"[download_audio] Starting download: {url}")
+    print(f"[download_audio] Cookies: {Path('/etc/secrets/cookies.txt').exists()}")
+
     result = subprocess.run(
         ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template, "--cookies", "/etc/secrets/cookies.txt", url],
         capture_output=True,
         text=True,
         timeout=120,
     )
+
+    print(f"[download_audio] Exit code: {result.returncode}")
+    print(f"[download_audio] stdout: {result.stdout[:500]}")
+    print(f"[download_audio] stderr: {result.stderr[:500]}")
 
     if result.returncode != 0:
         raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()}")
@@ -48,21 +55,28 @@ def convert_to_malayalam(input_path: str) -> str:
     Raises RuntimeError on failure.
     """
     if input_path.startswith("http://") or input_path.startswith("https://"):
+        print(f"[convert_to_malayalam] URL detected, downloading...")
         input_path = download_audio(input_path)
+        print(f"[convert_to_malayalam] Downloaded to: {input_path}")
 
     path = Path(input_path)
     if path.exists():
         is_audio = path.suffix.lower() in AUDIO_EXTENSIONS
+        print(f"[convert_to_malayalam] File exists: {path}, is_audio={is_audio}, size={path.stat().st_size}")
     else:
         is_audio = False
+        print(f"[convert_to_malayalam] Not a file, treating as text: {input_path[:100]}")
 
     client = genai.Client()
     model = "models/gemini-3.1-flash-lite-preview"
     config = {"temperature": 0.1}
 
     if path.suffix.lower() in AUDIO_EXTENSIONS:
+        print("[convert_to_malayalam] Uploading audio to Gemini...")
         myfile = client.files.upload(file=str(path))
+        print(f"[convert_to_malayalam] Uploaded: {myfile.name}")
         try:
+            print("[convert_to_malayalam] Calling Gemini for transcription...")
             response = client.models.generate_content(
                 model=model,
                 contents=[SYSTEM_PROMPT, myfile],
@@ -89,8 +103,10 @@ def convert_to_malayalam(input_path: str) -> str:
         )
 
     if not response.text:
+        print("[convert_to_malayalam] ERROR: Gemini returned empty response")
         raise RuntimeError("Gemini returned empty response")
 
+    print(f"[convert_to_malayalam] Translated text length: {len(response.text)}")
     return response.text.strip()
 
 
