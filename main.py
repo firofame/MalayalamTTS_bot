@@ -11,6 +11,16 @@ from translate import convert_to_malayalam
 
 app = FastAPI()
 
+
+@app.get("/")
+async def root():
+    return {
+        "status": "running",
+        "bot": "Malayalam TTS Bot",
+        "description": "Translates text and audio to Malayalam speech",
+        "webhook": "/telegram"
+    }
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 VOICE = "en-US-AvaMultilingualNeural"
