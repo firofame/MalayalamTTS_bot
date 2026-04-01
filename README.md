@@ -20,7 +20,7 @@ Send any of these to the bot:
 | Reel / Story / Video | Downloads audio → transcribes → translates |
 | Plain text | Translates directly |
 
-The bot sends the translated text first, then follows with a voice message.
+The bot sends the Malayalam translation as a caption on the voice message.
 
 ## Commands
 

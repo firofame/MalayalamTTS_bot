@@ -9,6 +9,10 @@ logger = logging.getLogger("bot.translate")
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
 
+client = genai.Client()
+MODEL = "models/gemini-3.1-flash-lite-preview"
+CONFIG = {"temperature": 0.1}
+
 
 def convert_to_malayalam(input_path: str) -> str:
     """Translate text or transcribe+translate audio to Malayalam.
@@ -29,10 +33,6 @@ def convert_to_malayalam(input_path: str) -> str:
     else:
         logger.info("Not a file, treating as text: %s", input_path[:100])
 
-    client = genai.Client()
-    model = "models/gemini-3.1-flash-lite-preview"
-    config = {"temperature": 0.1}
-
     if path.suffix.lower() == ".mp3":
         logger.info("Uploading audio to Gemini...")
         myfile = client.files.upload(file=str(path))
@@ -40,9 +40,9 @@ def convert_to_malayalam(input_path: str) -> str:
         try:
             logger.info("Calling Gemini for transcription...")
             response = client.models.generate_content(
-                model=model,
+                model=MODEL,
                 contents=[SYSTEM_PROMPT, myfile],
-                config=config,
+                config=CONFIG,
             )
         finally:
             try:
@@ -53,15 +53,15 @@ def convert_to_malayalam(input_path: str) -> str:
     elif path.exists():
         source_text = path.read_text(encoding="utf-8")
         response = client.models.generate_content(
-            model=model,
+            model=MODEL,
             contents=[SYSTEM_PROMPT, f"Input Text to Convert:\n\n{source_text}"],
-            config=config,
+            config=CONFIG,
         )
     else:
         response = client.models.generate_content(
-            model=model,
+            model=MODEL,
             contents=[SYSTEM_PROMPT, f"Input Text to Convert:\n\n{input_path}"],
-            config=config,
+            config=CONFIG,
         )
 
     if not response.text:
