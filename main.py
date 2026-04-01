@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import tempfile
@@ -8,6 +9,12 @@ import requests
 import edge_tts
 from fastapi import FastAPI, Request
 from translate import convert_to_malayalam
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("bot.main")
 
 app = FastAPI()
 
@@ -42,7 +49,7 @@ def _cleanup_rate_limits():
 
 @app.on_event("startup")
 def setup_commands():
-    requests.post(
+    resp = requests.post(
         f"{TELEGRAM_API_URL}/setMyCommands",
         json={
             "commands": [
@@ -51,6 +58,7 @@ def setup_commands():
             ]
         }
     )
+    logger.info("Bot commands registered: %s", resp.status_code == 200)
 
 
 def send_message(chat_id: int, text: str, reply_to_message_id: int | None = None, parse_mode: str | None = None) -> dict:
@@ -98,6 +106,7 @@ def check_rate_limit(chat_id: int) -> bool:
     now = time.time()
     last = _rate_limits.get(chat_id, 0)
     if now - last < RATE_LIMIT_SECONDS:
+        logger.warning("Rate limited chat_id: %s", chat_id)
         return True
     _rate_limits[chat_id] = now
     _cleanup_rate_limits()
@@ -213,7 +222,10 @@ async def telegram(request: Request):
     text = message.get("text", "")
 
     if not chat_id or not text:
+        logger.debug("Ignoring message: chat_id=%s, text=%s", chat_id, bool(text))
         return {"status": "ignored"}
+
+    logger.info("Received message from chat_id=%s: %s", chat_id, text[:100])
 
     if text.startswith("http://") or text.startswith("https://"):
         command = "/tts"

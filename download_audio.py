@@ -1,9 +1,12 @@
 """Download audio from URLs using yt-dlp."""
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+logger = logging.getLogger("bot.download")
 
 _COOKIES_SOURCE = "/etc/secrets/cookies.txt"
 
@@ -26,9 +29,9 @@ def download_audio(url: str) -> str:
     output_dir.mkdir(exist_ok=True)
     output_template = str(output_dir / "%(title)s.%(ext)s")
 
-    print(f"[download_audio] Starting download: {url}")
+    logger.info("Starting download: %s", url)
     cookies_args = _get_cookies_arg()
-    print(f"[download_audio] Cookies: {bool(cookies_args)}")
+    logger.debug("Cookies available: %s", bool(cookies_args))
 
     cmd = ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_template] + cookies_args + [url]
     result = subprocess.run(
@@ -38,11 +41,12 @@ def download_audio(url: str) -> str:
         timeout=120,
     )
 
-    print(f"[download_audio] Exit code: {result.returncode}")
-    print(f"[download_audio] stdout: {result.stdout[:500]}")
-    print(f"[download_audio] stderr: {result.stderr[:500]}")
+    logger.debug("Exit code: %s", result.returncode)
+    logger.debug("stdout: %s", result.stdout[:500])
+    logger.debug("stderr: %s", result.stderr[:500])
 
     if result.returncode != 0:
+        logger.error("yt-dlp failed: %s", result.stderr.strip())
         raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()}")
 
     combined = result.stdout + result.stderr

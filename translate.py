@@ -1,9 +1,12 @@
 """Translation and TTS pipeline — independent functions for text translation, audio transcription, and speech synthesis."""
+import logging
 import os
 import sys
 from pathlib import Path
 from google import genai
 from download_audio import download_audio
+
+logger = logging.getLogger("bot.translate")
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
 
@@ -17,26 +20,26 @@ def convert_to_malayalam(input_path: str) -> str:
     Raises RuntimeError on failure.
     """
     if input_path.startswith("http://") or input_path.startswith("https://"):
-        print(f"[convert_to_malayalam] URL detected, downloading...")
+        logger.info("URL detected, downloading...")
         input_path = download_audio(input_path)
-        print(f"[convert_to_malayalam] Downloaded to: {input_path}")
+        logger.info("Downloaded to: %s", input_path)
 
     path = Path(input_path)
     if path.exists():
-        print(f"[convert_to_malayalam] File exists: {path}, size={path.stat().st_size}")
+        logger.info("File exists: %s, size=%d", path, path.stat().st_size)
     else:
-        print(f"[convert_to_malayalam] Not a file, treating as text: {input_path[:100]}")
+        logger.info("Not a file, treating as text: %s", input_path[:100])
 
     client = genai.Client()
     model = "models/gemini-3.1-flash-lite-preview"
     config = {"temperature": 0.1}
 
     if path.suffix.lower() == ".mp3":
-        print("[convert_to_malayalam] Uploading audio to Gemini...")
+        logger.info("Uploading audio to Gemini...")
         myfile = client.files.upload(file=str(path))
-        print(f"[convert_to_malayalam] Uploaded: {myfile.name}")
+        logger.info("Uploaded: %s", myfile.name)
         try:
-            print("[convert_to_malayalam] Calling Gemini for transcription...")
+            logger.info("Calling Gemini for transcription...")
             response = client.models.generate_content(
                 model=model,
                 contents=[SYSTEM_PROMPT, myfile],
@@ -63,10 +66,10 @@ def convert_to_malayalam(input_path: str) -> str:
         )
 
     if not response.text:
-        print("[convert_to_malayalam] ERROR: Gemini returned empty response")
+        logger.error("Gemini returned empty response")
         raise RuntimeError("Gemini returned empty response")
 
-    print(f"[convert_to_malayalam] Translated text length: {len(response.text)}")
+    logger.info("Translated text length: %d", len(response.text))
     return response.text.strip()
 
 
