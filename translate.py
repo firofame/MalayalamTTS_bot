@@ -1,14 +1,9 @@
 """Translation and TTS pipeline — independent functions for text translation, audio transcription, and speech synthesis."""
 import os
 import sys
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from google import genai
 from download_audio import download_audio
-
-AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma', '.opus', '.webm'}
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
 
@@ -28,17 +23,15 @@ def convert_to_malayalam(input_path: str) -> str:
 
     path = Path(input_path)
     if path.exists():
-        is_audio = path.suffix.lower() in AUDIO_EXTENSIONS
-        print(f"[convert_to_malayalam] File exists: {path}, is_audio={is_audio}, size={path.stat().st_size}")
+        print(f"[convert_to_malayalam] File exists: {path}, size={path.stat().st_size}")
     else:
-        is_audio = False
         print(f"[convert_to_malayalam] Not a file, treating as text: {input_path[:100]}")
 
     client = genai.Client()
     model = "models/gemini-3.1-flash-lite-preview"
     config = {"temperature": 0.1}
 
-    if path.suffix.lower() in AUDIO_EXTENSIONS:
+    if path.suffix.lower() == ".mp3":
         print("[convert_to_malayalam] Uploading audio to Gemini...")
         myfile = client.files.upload(file=str(path))
         print(f"[convert_to_malayalam] Uploaded: {myfile.name}")

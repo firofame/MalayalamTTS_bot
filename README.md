@@ -40,6 +40,15 @@ uvicorn main:app --host 0.0.0.0 --port $PORT
 
 Set `BOT_TOKEN` and `GOOGLE_API_KEY` environment variables.
 
+## Project Structure
+
+```
+main.py            — FastAPI Telegram webhook handler
+translate.py       — Translation pipeline (text/audio → Malayalam)
+download_audio.py  — Audio download via yt-dlp
+prompt.txt         — Gemini system prompt
+```
+
 ## Tech Stack
 
 - **FastAPI** — webhook server
