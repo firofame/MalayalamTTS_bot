@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import time
 import asyncio
+import threading
 import requests
 import edge_tts
 from fastapi import FastAPI, Request
@@ -67,6 +68,21 @@ def edit_message(chat_id: int, message_id: int, text: str, parse_mode: str | Non
     return resp.json() if resp.status_code == 200 else {}
 
 
+def send_chat_action(chat_id: int, action: str) -> None:
+    """Send a chat action (typing, record_voice, etc.) to show activity."""
+    requests.post(
+        f"{TELEGRAM_API_URL}/sendChatAction",
+        data={"chat_id": chat_id, "action": action}
+    )
+
+
+def _chat_action_loop(chat_id: int, action: str, stop_event: threading.Event):
+    """Send chat action every 4 seconds until stopped."""
+    while not stop_event.is_set():
+        send_chat_action(chat_id, action)
+        stop_event.wait(4)
+
+
 def check_rate_limit(chat_id: int) -> bool:
     """Return True if the request should be rejected (rate limited)."""
     now = time.time()
@@ -105,8 +121,15 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
     progress_msg_id = resp.get("result", {}).get("message_id") or None
 
     audio_file = None
+    action_stop = threading.Event()
+    action_thread = None
 
     try:
+        action_thread = threading.Thread(
+            target=_chat_action_loop, args=(chat_id, "typing", action_stop), daemon=True
+        )
+        action_thread.start()
+
         if progress_msg_id:
             status = "📥 Downloading and translating..." if args.startswith("http") else "🌐 Translating..."
             edit_message(chat_id, progress_msg_id, status)
@@ -119,6 +142,14 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
             else:
                 send_message(chat_id, "❌ Translation service is busy. Please try again.", reply_to_message_id=reply_to_message_id)
             return
+
+        action_stop.set()
+        action_thread.join()
+        action_stop.clear()
+        action_thread = threading.Thread(
+            target=_chat_action_loop, args=(chat_id, "record_voice", action_stop), daemon=True
+        )
+        action_thread.start()
 
         if progress_msg_id:
             edit_message(chat_id, progress_msg_id, "🎙️ Generating audio...")
@@ -157,6 +188,9 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
         else:
             send_message(chat_id, f"<b>❌ Error:</b> {error_msg}", reply_to_message_id=reply_to_message_id, parse_mode="HTML")
     finally:
+        action_stop.set()
+        if action_thread:
+            action_thread.join()
         if audio_file and os.path.exists(audio_file):
             os.remove(audio_file)
 
