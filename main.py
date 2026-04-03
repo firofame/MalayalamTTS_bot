@@ -6,7 +6,7 @@ import asyncio
 import threading
 import requests
 import edge_tts
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from translate import convert_to_malayalam
 
 logging.basicConfig(
@@ -234,7 +234,7 @@ def _run_tts_sync(chat_id: int, args: str, reply_to_message_id: int | None = Non
 
 
 @app.post("/telegram")
-async def telegram(request: Request):
+async def telegram(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     message = data.get("message", {})
     chat_id = message.get("chat", {}).get("id")
@@ -289,7 +289,7 @@ async def telegram(request: Request):
             )
             return {"status": "success"}
 
-        await asyncio.to_thread(_run_tts_sync, chat_id, args, message.get("message_id"))
+        background_tasks.add_task(_run_tts_sync, chat_id, args, message.get("message_id"))
         return {"status": "success"}
 
     send_message(
