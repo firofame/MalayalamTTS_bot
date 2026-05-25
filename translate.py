@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from google import genai
+from google.genai import types
 from download_audio import download_audio
 
 logger = logging.getLogger("bot.translate")
@@ -16,7 +17,10 @@ if not os.getenv("GOOGLE_API_KEY") and not os.getenv("GEMINI_API_KEY"):
 
 client = genai.Client(http_options={"timeout": 120_000})
 MODEL = "models/gemini-2.5-flash"
-CONFIG = {"temperature": 0.1}
+CONFIG = types.GenerateContentConfig(
+    temperature=0.1,
+    thinking_config=types.ThinkingConfig(thinking_budget=8000),
+)
 
 
 def convert_to_malayalam(input_path: str) -> str:
