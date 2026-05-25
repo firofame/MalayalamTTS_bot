@@ -1,39 +1,54 @@
 # Malayalam TTS Bot — Improvement Plan
 
-## 🔴 Critical (will break soon / silently fail)
+## ✅ Completed Fixes
 
-| # | Issue | File:Line | Fix |
-|---|---|---|---|
-| 1 | Invalid Gemini model name `gemini-3.1-flash-lite-preview` — no known published model by that name | `translate.py:13` | Update to `gemini-2.0-flash-lite` or `gemini-2.0-flash` |
-| 2 | No `BOT_TOKEN` validation on startup — app starts but all API calls silently fail | `main.py:30` | Add startup check that raises if missing |
-| 3 | No pinned dependency versions — deploy can break anytime | `requirements.txt` | Pin all packages to known-good versions |
+### 🔴 Critical (Phase 1)
 
-## 🟡 Bugs / Fragile Code
+| # | Issue | Fix Applied |
+|---|---|---|
+| 1 | ~~Invalid Gemini model name~~ | Changed to `gemini-2.5-flash` in `translate.py` |
+| 2 | ~~No `BOT_TOKEN` validation on startup~~ | `RuntimeError` raised at module load if missing |
+| 3 | ~~No pinned dependency versions~~ | All packages pinned with compatible-release ranges |
 
-| # | Issue | File:Line | Fix |
-|---|---|---|---|
-| 4 | `asyncio.run()` inside a thread — creates new event loop each time, fragile | `main.py:194` | Convert to proper async OR use `asyncio.new_event_loop()` |
-| 5 | `_rate_limits` dict accessed without locks — thread-unsafe race condition | `main.py:35-123` | Add `threading.Lock` |
-| 6 | yt-dlp stdout parsing — `[ExtractAudio] Destination:` string matching is locale/version-dependent | `download_audio.py:53-57` | Use `--print filename` flag or JSON output |
-| 7 | Cookie file copied to world-readable temp dir, never cleaned up | `download_audio.py:18-23` | Clean up temp cookies after download completes |
-| 8 | Chat action thread lifecycle bugs — double-join, race between set/clear, no exception isolation | `main.py:170-185` | Refactor with cleaner thread lifecycle |
-| 9 | Logging f-string with `%s` — `args_len=%d` inside an f-string mixing `%s` formatting | `main.py:150` | Use either f-string or `%s`, not both |
-| 10 | `fastapi[all]` installs many unused extras | `requirements.txt` | Pin to `fastapi`, `uvicorn`, `python-multipart` individually |
+### 🟡 Bugs / Fragile Code (Phase 2)
 
-## 🟢 Architecture & Code Quality
+| # | Issue | Fix Applied |
+|---|---|---|
+| 4 | ~~`asyncio.run()` inside a thread~~ | Replaced with `asyncio.new_event_loop()` + `run_until_complete()` + `close()` |
+| 5 | ~~`_rate_limits` dict accessed without locks~~ | Added `threading.Lock` wrapping all access |
+| 6 | ~~yt-dlp stdout parsing fragile~~ | Uses `--print after_move:filepath` flag |
+| 7 | ~~Cookie file world-readable, never cleaned up~~ | `os.chmod(0o600)` + `_cleanup_cookies()` in `finally` block |
+| 8 | ~~Chat action thread lifecycle bugs~~ | New `threading.Event` per phase, `join(timeout=5)` |
+| 9 | ~~Logging f-string with `%s`~~ | **Removed — false positive.** The logging call was already correct |
+| 10 | ~~`fastapi[all]` installs unused extras~~ | Replaced with `fastapi`, `uvicorn`, `python-multipart` |
+
+### Additional fixes (found during validation)
+
+| # | Issue | Fix Applied |
+|---|---|---|
+| A | ~~No `GOOGLE_API_KEY` validation~~ | Warning logged at import time if key missing |
+| B | ~~Downloaded source audio never cleaned up~~ | `_cleanup_downloads()` removes files older than 1 hour |
+| C | ~~No request timeouts on HTTP calls~~ | `timeout=10` on Telegram API, `timeout=60` on `sendVoice`, `timeout=120s` on Gemini |
+| D | ~~HTML injection in error messages~~ | `html.escape()` on error strings before HTML send |
+| E | ~~Deprecated `@app.on_event("startup")`~~ | Replaced with `lifespan` async context manager |
+| F | ~~No timeout on Gemini API calls~~ | `genai.Client(http_options={"timeout": 120_000})` |
+
+---
+
+## 🟢 Remaining — Architecture & Code Quality (Phase 3)
 
 | # | Issue | Fix |
 |---|---|---|
-| 11 | Mix of sync/async — `requests` + `asyncio.run()` + `threading` | Migrate to fully async with `httpx` |
+| 11 | Mix of sync/async — `requests` + `asyncio` + `threading` | Migrate to fully async with `httpx` |
 | 12 | No `__init__.py` — not a proper Python package | Add `__init__.py` |
-| 13 | No URL validation — just `startswith("http")` | Use `urllib.parse` for proper URL validation |
-| 14 | No text length limits — could receive megabytes | Add max length check (e.g., 4000 chars) |
-| 15 | No file type validation for downloads — relies entirely on yt-dlp | Add post-download validation |
-| 16 | `downloads/` directory accumulates files forever | Add TTL-based cleanup (delete files older than 1 hour) |
+| 13 | ~~No URL validation~~ | ✅ Done — uses `urllib.parse` |
+| 14 | ~~No text length limits~~ | ✅ Done — 4000 char max |
+| 15 | No file type validation for downloads | Add post-download validation |
+| 16 | ~~`downloads/` directory accumulates files forever~~ | ✅ Done — TTL-based cleanup |
 | 17 | Minimal type hints | Add full type annotations throughout |
-| 18 | No input sanitization | Strip control characters, limit input size |
+| 18 | ~~No input sanitization~~ | ✅ Done — strips control characters |
 
-## 🔵 Testing & Deployment
+## 🔵 Remaining — Testing & Deployment (Phase 4)
 
 | # | Suggestion |
 |---|---|
@@ -45,7 +60,7 @@
 
 ## Implementation Order
 
-1. **Phase 1 — Critical fixes**: Items 1, 2, 3 (prevent app from breaking)
-2. **Phase 2 — Bug fixes**: Items 4, 5, 6, 7, 8, 9, 10 (stability / correctness)
-3. **Phase 3 — Code quality**: Items 11-18 (maintainability)
-4. **Phase 4 — Testing & infra**: Items 19-23 (confidence)
+1. **Phase 1 — Critical fixes**: ✅ Complete
+2. **Phase 2 — Bug fixes**: ✅ Complete
+3. **Phase 3 — Code quality**: Items 11, 12, 15, 17 remaining
+4. **Phase 4 — Testing & infra**: Items 19-23 remaining
