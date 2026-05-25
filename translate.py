@@ -16,7 +16,7 @@ if not os.getenv("GOOGLE_API_KEY") and not os.getenv("GEMINI_API_KEY"):
     logger.warning("No GOOGLE_API_KEY or GEMINI_API_KEY found — Gemini calls will fail")
 
 client = genai.Client(http_options={"timeout": 120_000})
-MODEL = "models/gemini-2.5-flash"
+MODEL = "models/gemini-3.1-flash-lite"
 CONFIG = types.GenerateContentConfig(
     temperature=0.1,
     thinking_config=types.ThinkingConfig(thinking_budget=8000),
