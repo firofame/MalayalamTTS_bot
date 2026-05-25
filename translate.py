@@ -1,5 +1,6 @@
 """Translation and TTS pipeline — independent functions for text translation, audio transcription, and speech synthesis."""
 import logging
+import os
 import sys
 from pathlib import Path
 from google import genai
@@ -9,8 +10,12 @@ logger = logging.getLogger("bot.translate")
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
 
-client = genai.Client()
-MODEL = "models/gemini-3.1-flash-lite-preview"
+# Validate API key at import time
+if not os.getenv("GOOGLE_API_KEY") and not os.getenv("GEMINI_API_KEY"):
+    logger.warning("No GOOGLE_API_KEY or GEMINI_API_KEY found — Gemini calls will fail")
+
+client = genai.Client(http_options={"timeout": 120_000})
+MODEL = "models/gemini-2.5-flash"
 CONFIG = {"temperature": 0.1}
 
 
