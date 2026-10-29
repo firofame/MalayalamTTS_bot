@@ -40,6 +40,24 @@ uvicorn main:app --host 0.0.0.0 --port $PORT
 
 Set `BOT_TOKEN` and `GOOGLE_API_KEY` environment variables.
 
+### Speech synthesis returns HTTP 403
+
+An error containing `Sec-MS-GEC-Version=1-...` indicates the old Edge speech
+authentication protocol. Use `edge-tts>=7.3.1,<7.4`, which supports v2 tokens
+and includes a server-date parsing fix.
+
+For an existing installation, upgrade dependencies and restart the bot:
+
+```bash
+python -m pip install --upgrade -r requirements.txt
+python -m pip show edge-tts
+```
+
+On Render, redeploy after updating the requirements. If the old version is
+still installed, use **Clear build cache & deploy**. If 403 errors persist
+with the updated package, check the server's UTC clock and whether the
+hosting network can reach Microsoft's speech service.
+
 ## Project Structure
 
 ```
