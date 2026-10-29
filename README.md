@@ -65,10 +65,15 @@ hosting network can reach Microsoft's speech service.
 ## Project Structure
 
 ```
-main.py       — FastAPI Telegram webhook handler
-translate.py  — Text translation (text → Malayalam)
-prompt.txt    — Gemini system prompt
+main.py             — FastAPI lifecycle, webhook routing, and input validation
+telegram_client.py  — Telegram Bot API calls using the shared HTTP client
+tts.py              — Translation-to-speech workflow, progress, and audio cleanup
+translate.py        — Text translation (text → Malayalam)
+prompt.txt          — Gemini system prompt
 ```
+
+App startup creates a shared Telegram client, which is passed to the webhook's
+background TTS tasks. The HTTP connection pool is closed during app shutdown.
 
 ## Tests
 

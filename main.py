@@ -1,16 +1,13 @@
-import asyncio
-import contextlib
-import html
 import logging
 import os
-import tempfile
 import time
 from contextlib import asynccontextmanager
 
-import edge_tts
 import httpx
 from fastapi import FastAPI, Request, BackgroundTasks
-from translate import convert_to_malayalam
+
+from telegram_client import TelegramClient
+from tts import run_tts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,7 +23,6 @@ if not BOT_TOKEN:
     )
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-VOICE = "en-US-AvaMultilingualNeural"
 
 # Rate limiting
 _rate_limits: dict[int, float] = {}
@@ -35,10 +31,6 @@ _MAX_RATE_LIMIT_ENTRIES = 1000
 
 # Input limits
 MAX_TEXT_LENGTH = 4000
-
-# Global AsyncClient to reuse connections
-http_client: httpx.AsyncClient | None = None
-
 
 def _cleanup_rate_limits() -> None:
     """Remove oldest entries if the dict grows too large."""
@@ -61,28 +53,11 @@ def _sanitize_text(text: str) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
-    global http_client
-    http_client = httpx.AsyncClient(timeout=10.0)
-
-    # Startup: register bot commands
-    try:
-        resp = await http_client.post(
-            f"{TELEGRAM_API_URL}/setMyCommands",
-            json={
-                "commands": [
-                    {"command": "start", "description": "Start the bot"},
-                    {"command": "tts", "description": "Translate and convert text to Malayalam speech"},
-                ]
-            },
-        )
-        logger.info("Bot commands registered: %s", resp.status_code == 200)
-    except Exception:
-        logger.error("Failed to register bot commands", exc_info=True)
-    
-    yield
-
-    # Shutdown: close http client
-    await http_client.aclose()
+    async with httpx.AsyncClient(timeout=10.0) as http_client:
+        bot = TelegramClient(http_client, TELEGRAM_API_URL)
+        app.state.telegram_client = bot
+        await bot.register_commands()
+        yield
 
 
 app = FastAPI(lifespan=lifespan)
@@ -96,68 +71,6 @@ async def root():
         "description": "Translates text to Malayalam speech",
         "webhook": "/telegram"
     }
-
-
-async def send_message(chat_id: int, text: str, reply_to_message_id: int | None = None, parse_mode: str | None = None) -> dict:
-    data = {"chat_id": chat_id, "text": text}
-    if reply_to_message_id:
-        data["reply_to_message_id"] = reply_to_message_id
-    if parse_mode:
-        data["parse_mode"] = parse_mode
-    try:
-        resp = await http_client.post(
-            f"{TELEGRAM_API_URL}/sendMessage",
-            data=data,
-        )
-        if resp.status_code != 200:
-            logger.error("sendMessage failed (%s): %s", resp.status_code, resp.text[:200])
-            return {}
-        return resp.json()
-    except Exception:
-        logger.error("sendMessage error", exc_info=True)
-        return {}
-
-
-async def edit_message(chat_id: int, message_id: int, text: str, parse_mode: str | None = None) -> dict:
-    """Edit an existing message in place."""
-    data = {"chat_id": chat_id, "message_id": message_id, "text": text}
-    if parse_mode:
-        data["parse_mode"] = parse_mode
-    try:
-        resp = await http_client.post(
-            f"{TELEGRAM_API_URL}/editMessageText",
-            data=data,
-        )
-        if resp.status_code != 200:
-            logger.error("editMessage failed (%s): %s", resp.status_code, resp.text[:200])
-            return {}
-        return resp.json()
-    except Exception:
-        logger.error("editMessage error", exc_info=True)
-        return {}
-
-
-async def send_chat_action(chat_id: int, action: str) -> None:
-    """Send a chat action (typing, record_voice, etc.) to show activity."""
-    try:
-        await http_client.post(
-            f"{TELEGRAM_API_URL}/sendChatAction",
-            data={"chat_id": chat_id, "action": action},
-        )
-    except Exception:
-        logger.error("sendChatAction error", exc_info=True)
-
-
-async def _chat_action_loop(chat_id: int, action: str) -> None:
-    """Send chat action every 4 seconds until cancelled."""
-    try:
-        while True:
-            await send_chat_action(chat_id, action)
-            await asyncio.sleep(4)
-    except asyncio.CancelledError:
-        pass
-    except Exception:
-        logger.error("Error in chat action loop", exc_info=True)
 
 
 def check_rate_limit(chat_id: int) -> bool:
@@ -188,94 +101,6 @@ def parse_command(text: str, entities: list | None = None) -> tuple[str | None, 
     return None, text
 
 
-async def _run_tts_async(chat_id: int, args: str, reply_to_message_id: int | None = None) -> None:
-    """Core TTS processing logic."""
-    logger.info("TTS started: chat_id=%s, args_len=%d", chat_id, len(args))
-
-    resp = await send_message(chat_id, "🌐 Translating...", reply_to_message_id=reply_to_message_id)
-    progress_msg_id = resp.get("result", {}).get("message_id") or None
-
-    audio_file = None
-    action_task = None
-
-    try:
-        action_task = asyncio.create_task(_chat_action_loop(chat_id, "typing"))
-
-        malayalam_text = await convert_to_malayalam(args)
-        logger.info("Translation complete: chat_id=%s, text_len=%d", chat_id, len(malayalam_text))
-
-        if not malayalam_text:
-            if progress_msg_id:
-                await edit_message(chat_id, progress_msg_id, "❌ Translation service is busy. Please try again.")
-            else:
-                await send_message(chat_id, "❌ Translation service is busy. Please try again.", reply_to_message_id=reply_to_message_id)
-            return
-
-        # Stop typing action, start recording action
-        if action_task:
-            action_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await action_task
-        action_task = asyncio.create_task(_chat_action_loop(chat_id, "record_voice"))
-
-        if progress_msg_id:
-            await edit_message(chat_id, progress_msg_id, "🎙️ Generating audio...")
-
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            audio_file = tmp.name
-
-        communicate = edge_tts.Communicate(malayalam_text, VOICE)
-        await communicate.save(audio_file)
-        logger.info("Audio generated: chat_id=%s", chat_id)
-
-        with open(audio_file, "rb") as f:
-            voice_data = {
-                "chat_id": str(chat_id),
-                "caption": malayalam_text[:1024],
-                "parse_mode": "HTML",
-            }
-            if reply_to_message_id:
-                voice_data["reply_to_message_id"] = str(reply_to_message_id)
-            
-            files = {"voice": (os.path.basename(audio_file), f, "audio/mpeg")}
-            
-            voice_resp = await http_client.post(
-                f"{TELEGRAM_API_URL}/sendVoice",
-                data=voice_data,
-                files=files,
-                timeout=60.0,
-            )
-
-        if voice_resp.status_code != 200:
-            logger.error("sendVoice failed (%s): %s", voice_resp.status_code, voice_resp.text[:200])
-            if progress_msg_id:
-                await edit_message(chat_id, progress_msg_id, f"❌ Audio send failed: {voice_resp.text}")
-            return
-
-        logger.info("Voice sent: chat_id=%s", chat_id)
-        if progress_msg_id:
-            await edit_message(chat_id, progress_msg_id, "✅ Done!")
-
-    except Exception as e:
-        error_msg = html.escape(str(e))  # Prevent HTML injection
-        logger.error("TTS failed: chat_id=%s, error=%s", chat_id, error_msg)
-        if progress_msg_id:
-            await edit_message(chat_id, progress_msg_id, f"<b>❌ Error:</b> {error_msg}", parse_mode="HTML")
-        else:
-            await send_message(chat_id, f"<b>❌ Error:</b> {error_msg}", reply_to_message_id=reply_to_message_id, parse_mode="HTML")
-    finally:
-        if action_task:
-            action_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await action_task
-        if audio_file and os.path.exists(audio_file):
-            try:
-                os.remove(audio_file)
-            except OSError:
-                pass
-        logger.info("TTS complete: chat_id=%s", chat_id)
-
-
 @app.post("/telegram")
 async def telegram(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
@@ -292,6 +117,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
     if not text:
         return {"status": "ignored"}
 
+    bot: TelegramClient = request.app.state.telegram_client
     logger.info("Received message from chat_id=%s: %s", chat_id, text[:100])
 
     entities = message.get("entities", [])
@@ -300,7 +126,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
         command = "/tts"
 
     if command == "/start":
-        await send_message(
+        await bot.send_message(
             chat_id,
             "<b>👋 Welcome to Malayalam TTS Bot!</b>\n\n"
             "I can translate text to Malayalam speech.\n\n"
@@ -315,7 +141,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
 
     if command == "/tts":
         if not args:
-            await send_message(
+            await bot.send_message(
                 chat_id,
                 "<b>Usage:</b>\n"
                 "• <code>/tts Hello world</code> — translate text to Malayalam speech",
@@ -326,7 +152,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
 
         # Enforce text length limit
         if len(args) > MAX_TEXT_LENGTH:
-            await send_message(
+            await bot.send_message(
                 chat_id,
                 f"<b>⚠️ Text too long.</b> Maximum {MAX_TEXT_LENGTH} characters allowed.",
                 reply_to_message_id=message.get("message_id"),
@@ -335,7 +161,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
             return {"status": "success"}
 
         if check_rate_limit(chat_id):
-            await send_message(
+            await bot.send_message(
                 chat_id,
                 "<b>⏳ Please wait</b> before sending another request.",
                 reply_to_message_id=message.get("message_id"),
@@ -343,10 +169,10 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
             )
             return {"status": "success"}
 
-        background_tasks.add_task(_run_tts_async, chat_id, args, message.get("message_id"))
+        background_tasks.add_task(run_tts, bot, chat_id, args, message.get("message_id"))
         return {"status": "success"}
 
-    await send_message(
+    await bot.send_message(
         chat_id,
         "<b>Unknown command.</b> Try /start or /tts Hello",
         reply_to_message_id=message.get("message_id"),
