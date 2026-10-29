@@ -17,10 +17,9 @@ if not os.getenv("GOOGLE_API_KEY") and not os.getenv("GEMINI_API_KEY"):
     logger.warning("No GOOGLE_API_KEY or GEMINI_API_KEY found — Gemini calls will fail")
 
 client = genai.Client(http_options={"timeout": 120_000})
-MODEL = "models/gemini-3.1-flash-lite"
+MODEL = "models/gemini-3.5-flash-lite"
 CONFIG = types.GenerateContentConfig(
-    temperature=0.1,
-    thinking_config=types.ThinkingConfig(thinking_budget=8000),
+    thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM),
 )
 
 
@@ -99,4 +98,3 @@ if __name__ == "__main__":
     output_file = sys.argv[2] if len(sys.argv) > 2 else default_name
     Path(output_file).write_text(result, encoding="utf-8")
     print(f"✅ Success! Saved to {output_file}")
-

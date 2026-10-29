@@ -53,6 +53,6 @@ prompt.txt         — Gemini system prompt
 
 - **FastAPI** — webhook server
 - **yt-dlp** — Instagram content extraction
-- **Google Gemini** — transcription and translation
+- **Google Gemini 3.5 Flash-Lite** (`gemini-3.5-flash-lite`) — transcription and translation with medium thinking
 - **Edge TTS** — text-to-speech
 - **Telegram Bot API** — messaging
