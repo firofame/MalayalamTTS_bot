@@ -6,7 +6,6 @@ import os
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from urllib.parse import urlparse
 
 import edge_tts
 import httpx
@@ -47,15 +46,6 @@ def _cleanup_rate_limits() -> None:
         sorted_items = sorted(_rate_limits.items(), key=lambda x: x[1], reverse=True)
         _rate_limits.clear()
         _rate_limits.update(sorted_items[:500])
-
-
-def _is_valid_url(text: str) -> bool:
-    """Check if text is a valid HTTP/HTTPS URL."""
-    try:
-        parsed = urlparse(text)
-        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
-    except Exception:
-        return False
 
 
 def _sanitize_text(text: str) -> str:
@@ -103,7 +93,7 @@ async def root():
     return {
         "status": "running",
         "bot": "Malayalam TTS Bot",
-        "description": "Translates text and audio to Malayalam speech",
+        "description": "Translates text to Malayalam speech",
         "webhook": "/telegram"
     }
 
@@ -200,10 +190,9 @@ def parse_command(text: str, entities: list | None = None) -> tuple[str | None, 
 
 async def _run_tts_async(chat_id: int, args: str, reply_to_message_id: int | None = None) -> None:
     """Core TTS processing logic."""
-    is_url = _is_valid_url(args)
-    logger.info("TTS started: chat_id=%s, args_len=%d, is_url=%s", chat_id, len(args), is_url)
+    logger.info("TTS started: chat_id=%s, args_len=%d", chat_id, len(args))
 
-    resp = await send_message(chat_id, "📥 Downloading...", reply_to_message_id=reply_to_message_id)
+    resp = await send_message(chat_id, "🌐 Translating...", reply_to_message_id=reply_to_message_id)
     progress_msg_id = resp.get("result", {}).get("message_id") or None
 
     audio_file = None
@@ -211,10 +200,6 @@ async def _run_tts_async(chat_id: int, args: str, reply_to_message_id: int | Non
 
     try:
         action_task = asyncio.create_task(_chat_action_loop(chat_id, "typing"))
-
-        if progress_msg_id:
-            status = "📥 Downloading and translating..." if is_url else "🌐 Translating..."
-            await edit_message(chat_id, progress_msg_id, status)
 
         malayalam_text = await convert_to_malayalam(args)
         logger.info("Translation complete: chat_id=%s, text_len=%d", chat_id, len(malayalam_text))
@@ -288,26 +273,7 @@ async def _run_tts_async(chat_id: int, args: str, reply_to_message_id: int | Non
                 os.remove(audio_file)
             except OSError:
                 pass
-        # Clean up downloaded source audio files from yt-dlp
-        if is_url:
-            await asyncio.to_thread(_cleanup_downloads)
         logger.info("TTS complete: chat_id=%s", chat_id)
-
-
-def _cleanup_downloads() -> None:
-    """Remove downloaded audio files older than 1 hour from the downloads directory."""
-    from pathlib import Path
-    downloads = Path("downloads")
-    if not downloads.exists():
-        return
-    cutoff = time.time() - 3600  # 1 hour
-    for f in downloads.iterdir():
-        try:
-            if f.is_file() and f.stat().st_mtime < cutoff:
-                f.unlink()
-                logger.debug("Cleaned up old download: %s", f)
-        except OSError:
-            pass
 
 
 @app.post("/telegram")
@@ -328,23 +294,20 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
 
     logger.info("Received message from chat_id=%s: %s", chat_id, text[:100])
 
-    if _is_valid_url(text):
+    entities = message.get("entities", [])
+    command, args = parse_command(text, entities)
+    if command is None:
         command = "/tts"
-        args = text
-    else:
-        entities = message.get("entities", [])
-        command, args = parse_command(text, entities)
 
     if command == "/start":
         await send_message(
             chat_id,
             "<b>👋 Welcome to Malayalam TTS Bot!</b>\n\n"
-            "I can translate text and Instagram content to Malayalam speech.\n\n"
+            "I can translate text to Malayalam speech.\n\n"
             "<b>How to use:</b>\n"
             "• <code>/tts Hello world</code> — translate text to speech\n"
-            "• Paste any Instagram/YouTube link — I'll extract audio, transcribe & translate\n"
             "• Send any text — I'll translate it to Malayalam\n\n"
-            "Send me anything to get started!",
+            "Send me some text to get started!",
             reply_to_message_id=message.get("message_id"),
             parse_mode="HTML"
         )
@@ -355,15 +318,14 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
             await send_message(
                 chat_id,
                 "<b>Usage:</b>\n"
-                "• <code>/tts Hello world</code> — translate text to Malayalam speech\n"
-                "• <code>/tts https://instagram.com/...</code> — extract & translate audio",
+                "• <code>/tts Hello world</code> — translate text to Malayalam speech",
                 reply_to_message_id=message.get("message_id"),
                 parse_mode="HTML"
             )
             return {"status": "success"}
 
-        # Enforce text length limit (URLs are exempt)
-        if not _is_valid_url(args) and len(args) > MAX_TEXT_LENGTH:
+        # Enforce text length limit
+        if len(args) > MAX_TEXT_LENGTH:
             await send_message(
                 chat_id,
                 f"<b>⚠️ Text too long.</b> Maximum {MAX_TEXT_LENGTH} characters allowed.",

@@ -1,6 +1,6 @@
 # MalayalamTTS_bot
 
-Telegram bot that translates Instagram content to Malayalam speech and text.
+Telegram-only bot that translates text to Malayalam speech and text.
 
 **Bot:** [t.me/MalayalamTTS_bot](https://t.me/MalayalamTTS_bot)
 
@@ -8,17 +8,21 @@ Telegram bot that translates Instagram content to Malayalam speech and text.
 
 Send any of these to the bot:
 
-- **Instagram link** — extracts audio, transcribes, and translates to Malayalam
 - **Plain text** — translates directly to Malayalam
 - `/tts <text>` — translate text to Malayalam speech
+
+Link extraction and downloading are not supported. Links are treated as plain
+text, not fetched. Translation input is limited to 4,000 characters, with a
+30-second cooldown between translation requests per chat.
+
+Local file input is not supported. File paths in messages are treated as plain text.
 
 ### How it works
 
 | Input | Process |
 |-------|---------|
-| Static image post | Translates caption instantly |
-| Reel / Story / Video | Downloads audio → transcribes → translates |
 | Plain text | Translates directly |
+| `/tts <text>` | Translates the supplied text |
 
 The bot sends the Malayalam translation as a caption on the voice message.
 
@@ -61,16 +65,23 @@ hosting network can reach Microsoft's speech service.
 ## Project Structure
 
 ```
-main.py            — FastAPI Telegram webhook handler
-translate.py       — Translation pipeline (text/audio → Malayalam)
-download_audio.py  — Audio download via yt-dlp
-prompt.txt         — Gemini system prompt
+main.py       — FastAPI Telegram webhook handler
+translate.py  — Text translation (text → Malayalam)
+prompt.txt    — Gemini system prompt
+```
+
+## Tests
+
+After installing dependencies, run the regression tests without contacting
+external services:
+
+```bash
+python3 -m unittest discover -s tests
 ```
 
 ## Tech Stack
 
 - **FastAPI** — webhook server
-- **yt-dlp** — Instagram content extraction
-- **Google Gemini 3.5 Flash-Lite** (`gemini-3.5-flash-lite`) — transcription and translation with medium thinking
+- **Google Gemini 3.5 Flash-Lite** (`gemini-3.5-flash-lite`) — translation with medium thinking
 - **Edge TTS** — text-to-speech
 - **Telegram Bot API** — messaging
