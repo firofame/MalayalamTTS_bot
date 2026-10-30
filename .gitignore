@@ -107,3 +107,8 @@ venv.bak/
 
 # Mac OS
 .DS_Store
+
+# Azure Functions secrets and deployment output
+local.settings.json
+.python_packages/
+.azure/

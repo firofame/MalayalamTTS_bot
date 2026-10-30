@@ -7,25 +7,43 @@ import httpx
 logger = logging.getLogger("bot.telegram")
 
 
+class TelegramError(RuntimeError):
+    pass
+
+
 class TelegramClient:
     def __init__(self, http_client: httpx.AsyncClient, api_url: str):
         self.http_client = http_client
         self.api_url = api_url
 
     async def register_commands(self) -> None:
+        await self._post("setMyCommands", json={
+            "commands": [
+                {"command": "start", "description": "Start the bot"},
+                {"command": "tts", "description": "Convert text to speech"},
+            ]
+        })
+        logger.info("Bot commands registered")
+
+    async def _post(self, method: str, **kwargs) -> httpx.Response:
         try:
-            resp = await self.http_client.post(
-                f"{self.api_url}/setMyCommands",
-                json={
-                    "commands": [
-                        {"command": "start", "description": "Start the bot"},
-                        {"command": "tts", "description": "Convert text to speech"},
-                    ]
-                },
-            )
-            logger.info("Bot commands registered: %s", resp.status_code == 200)
-        except Exception:
-            logger.error("Failed to register bot commands", exc_info=True)
+            response = await self.http_client.post(f"{self.api_url}/{method}", **kwargs)
+        except httpx.HTTPError as error:
+            # HTTPX exception messages can contain the bot token in the URL.
+            logger.error("Telegram %s failed (%s)", method, type(error).__name__)
+            raise TelegramError(f"Telegram {method} connection failed.") from None
+        if response.status_code != 200:
+            logger.error("Telegram %s returned HTTP %s", method, response.status_code)
+            raise TelegramError(f"Telegram {method} failed (HTTP {response.status_code}).")
+        try:
+            result = response.json()
+        except ValueError:
+            logger.error("Telegram %s returned invalid JSON", method)
+            raise TelegramError("Telegram returned an invalid response.") from None
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            logger.error("Telegram %s rejected the request", method)
+            raise TelegramError(f"Telegram {method} rejected the request.")
+        return response
 
     async def send_message(
         self,
@@ -39,18 +57,7 @@ class TelegramClient:
             data["reply_to_message_id"] = reply_to_message_id
         if parse_mode:
             data["parse_mode"] = parse_mode
-        try:
-            resp = await self.http_client.post(
-                f"{self.api_url}/sendMessage",
-                data=data,
-            )
-            if resp.status_code != 200:
-                logger.error("sendMessage failed (%s): %s", resp.status_code, resp.text[:200])
-                return {}
-            return resp.json()
-        except Exception:
-            logger.error("sendMessage error", exc_info=True)
-            return {}
+        return (await self._post("sendMessage", data=data)).json()
 
     async def edit_message(
         self,
@@ -64,27 +71,10 @@ class TelegramClient:
         }
         if parse_mode:
             data["parse_mode"] = parse_mode
-        try:
-            resp = await self.http_client.post(
-                f"{self.api_url}/editMessageText",
-                data=data,
-            )
-            if resp.status_code != 200:
-                logger.error("editMessage failed (%s): %s", resp.status_code, resp.text[:200])
-                return {}
-            return resp.json()
-        except Exception:
-            logger.error("editMessage error", exc_info=True)
-            return {}
+        return (await self._post("editMessageText", data=data)).json()
 
     async def send_chat_action(self, chat_id: int, action: str) -> None:
-        try:
-            await self.http_client.post(
-                f"{self.api_url}/sendChatAction",
-                data={"chat_id": chat_id, "action": action},
-            )
-        except Exception:
-            logger.error("sendChatAction error", exc_info=True)
+        await self._post("sendChatAction", data={"chat_id": chat_id, "action": action})
 
     async def send_voice(
         self,
@@ -100,12 +90,9 @@ class TelegramClient:
             }
             if reply_to_message_id:
                 data["reply_to_message_id"] = str(reply_to_message_id)
-            resp = await self.http_client.post(
-                f"{self.api_url}/sendVoice",
+            return await self._post(
+                "sendVoice",
                 data=data,
                 files={"voice": (os.path.basename(audio_file), f, "audio/mpeg")},
                 timeout=60.0,
             )
-        if resp.status_code != 200:
-            logger.error("sendVoice failed (%s): %s", resp.status_code, resp.text[:200])
-        return resp

@@ -1,88 +1,29 @@
 import logging
-import os
-import time
-from contextlib import asynccontextmanager
-
-import httpx
-from fastapi import FastAPI, Request, BackgroundTasks
+from typing import Protocol
 
 from telegram_client import TelegramClient
 from tts import run_tts
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 logger = logging.getLogger("bot.main")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError(
-        "BOT_TOKEN environment variable is not set. "
-        "Set it to your Telegram bot token before starting."
-    )
-
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-# Rate limiting
-_rate_limits: dict[int, float] = {}
 RATE_LIMIT_SECONDS = 30
-_MAX_RATE_LIMIT_ENTRIES = 1000
-
-# Input limits
 MAX_TEXT_LENGTH = 4000
 
-def _cleanup_rate_limits() -> None:
-    """Remove oldest entries if the dict grows too large."""
-    if len(_rate_limits) > _MAX_RATE_LIMIT_ENTRIES:
-        sorted_items = sorted(_rate_limits.items(), key=lambda x: x[1], reverse=True)
-        _rate_limits.clear()
-        _rate_limits.update(sorted_items[:500])
+
+class RateLimiter(Protocol):
+    async def check_rate_limit(self, chat_id: int) -> bool: ...
 
 
 def _sanitize_text(text: str) -> str:
-    """Strip control characters and limit length."""
-    # Remove control characters except newline and tab
+    """Keep only characters that can be included in Azure SSML."""
     cleaned = "".join(
         ch for ch in text
-        if ch in ("\n", "\t") or (ord(ch) >= 32)
+        if ch in ("\n", "\t")
+        or 32 <= ord(ch) <= 0xD7FF
+        or 0xE000 <= ord(ch) <= 0xFFFD
+        or 0x10000 <= ord(ch) <= 0x10FFFF
     )
     return cleaned.strip()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup/shutdown lifecycle."""
-    async with httpx.AsyncClient(timeout=10.0) as http_client:
-        bot = TelegramClient(http_client, TELEGRAM_API_URL)
-        app.state.telegram_client = bot
-        await bot.register_commands()
-        yield
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.get("/")
-async def root():
-    return {
-        "status": "running",
-        "bot": "Malayalam TTS Bot",
-        "description": "Converts text to speech",
-        "webhook": "/telegram"
-    }
-
-
-def check_rate_limit(chat_id: int) -> bool:
-    """Return True if the request should be rejected (rate limited)."""
-    now = time.time()
-    last = _rate_limits.get(chat_id, 0)
-    if now - last < RATE_LIMIT_SECONDS:
-        logger.warning("Rate limited chat_id: %s", chat_id)
-        return True
-    _rate_limits[chat_id] = now
-    _cleanup_rate_limits()
-    return False
 
 
 def parse_command(text: str, entities: list | None = None) -> tuple[str | None, str]:
@@ -101,9 +42,7 @@ def parse_command(text: str, entities: list | None = None) -> tuple[str | None, 
     return None, text
 
 
-@app.post("/telegram")
-async def telegram(request: Request, background_tasks: BackgroundTasks):
-    data = await request.json()
+async def handle_update(data: dict, bot: TelegramClient, limiter: RateLimiter) -> dict:
     message = data.get("message", {})
     chat_id = message.get("chat", {}).get("id")
     text = message.get("text", "")
@@ -112,13 +51,11 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
         logger.debug("Ignoring message: chat_id=%s, text=%s", chat_id, bool(text))
         return {"status": "ignored"}
 
-    # Sanitize input
     text = _sanitize_text(text)
     if not text:
         return {"status": "ignored"}
 
-    bot: TelegramClient = request.app.state.telegram_client
-    logger.info("Received message from chat_id=%s: %s", chat_id, text[:100])
+    logger.info("Received message from chat_id=%s", chat_id)
 
     entities = message.get("entities", [])
     command, args = parse_command(text, entities)
@@ -150,7 +87,6 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
             )
             return {"status": "success"}
 
-        # Enforce text length limit
         if len(args) > MAX_TEXT_LENGTH:
             await bot.send_message(
                 chat_id,
@@ -160,7 +96,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
             )
             return {"status": "success"}
 
-        if check_rate_limit(chat_id):
+        if await limiter.check_rate_limit(chat_id):
             await bot.send_message(
                 chat_id,
                 "<b>⏳ Please wait</b> before sending another request.",
@@ -169,7 +105,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
             )
             return {"status": "success"}
 
-        background_tasks.add_task(run_tts, bot, chat_id, args, message.get("message_id"))
+        await run_tts(bot, chat_id, args, message.get("message_id"))
         return {"status": "success"}
 
     await bot.send_message(
