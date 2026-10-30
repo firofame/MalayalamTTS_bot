@@ -19,7 +19,7 @@ class TelegramClient:
                 json={
                     "commands": [
                         {"command": "start", "description": "Start the bot"},
-                        {"command": "tts", "description": "Translate and convert text to Malayalam speech"},
+                        {"command": "tts", "description": "Convert text to speech"},
                     ]
                 },
             )
@@ -97,7 +97,6 @@ class TelegramClient:
             data = {
                 "chat_id": str(chat_id),
                 "caption": caption[:1024],
-                "parse_mode": "HTML",
             }
             if reply_to_message_id:
                 data["reply_to_message_id"] = str(reply_to_message_id)

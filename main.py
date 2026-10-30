@@ -68,7 +68,7 @@ async def root():
     return {
         "status": "running",
         "bot": "Malayalam TTS Bot",
-        "description": "Translates text to Malayalam speech",
+        "description": "Converts text to speech",
         "webhook": "/telegram"
     }
 
@@ -129,10 +129,10 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
         await bot.send_message(
             chat_id,
             "<b>👋 Welcome to Malayalam TTS Bot!</b>\n\n"
-            "I can translate text to Malayalam speech.\n\n"
+            "I can convert your text directly to speech.\n\n"
             "<b>How to use:</b>\n"
-            "• <code>/tts Hello world</code> — translate text to speech\n"
-            "• Send any text — I'll translate it to Malayalam\n\n"
+            "• <code>/tts Hello world</code> — convert text to speech\n"
+            "• Send any text — I'll read it aloud\n\n"
             "Send me some text to get started!",
             reply_to_message_id=message.get("message_id"),
             parse_mode="HTML"
@@ -144,7 +144,7 @@ async def telegram(request: Request, background_tasks: BackgroundTasks):
             await bot.send_message(
                 chat_id,
                 "<b>Usage:</b>\n"
-                "• <code>/tts Hello world</code> — translate text to Malayalam speech",
+                "• <code>/tts Hello world</code> — convert text to speech",
                 reply_to_message_id=message.get("message_id"),
                 parse_mode="HTML"
             )

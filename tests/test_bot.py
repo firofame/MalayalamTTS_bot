@@ -4,15 +4,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs
 
 import httpx
 
-with patch.dict(os.environ, {"BOT_TOKEN": "test-token", "GOOGLE_API_KEY": "test-key"}):
+with patch.dict(os.environ, {"BOT_TOKEN": "test-token"}):
     import main
-    import translate
     import tts
 
 from telegram_client import TelegramClient
@@ -100,72 +98,13 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
                 reply = self.send_message.call_args.args[1]
                 self.assertNotIn("Instagram", reply)
                 self.assertNotIn("YouTube", reply)
+                self.assertNotIn("translat", reply.lower())
 
     async def test_empty_messages_are_ignored(self):
         result = await self.send(" \x00 ")
         self.assertEqual(result, {"status": "ignored"})
         self.run_tts.assert_not_awaited()
         self.send_message.assert_not_awaited()
-
-
-class TranslationTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.generate = AsyncMock(return_value=SimpleNamespace(text=" translated text "))
-        client = SimpleNamespace(
-            aio=SimpleNamespace(
-                models=SimpleNamespace(generate_content=self.generate),
-            )
-        )
-        patcher = patch.object(translate, "client", client)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    async def test_plain_text_and_links_are_text_not_audio(self):
-        for text in (
-            "Hello world",
-            "https://example.com/recording.mp3",
-            "http://example.com/article",
-        ):
-            with self.subTest(text=text):
-                result = await translate.convert_to_malayalam(text)
-                self.assertEqual(result, "translated text")
-                self.assertEqual(
-                    self.generate.call_args.kwargs["contents"],
-                    [translate.SYSTEM_PROMPT, f"Input Text to Convert:\n\n{text}"],
-                )
-
-    async def test_existing_paths_are_translated_as_literal_text(self):
-        with tempfile.TemporaryDirectory() as directory:
-            text_path = Path(directory) / "transcript.txt"
-            text_path.write_text("Local transcript", encoding="utf-8")
-            audio_path = Path(directory) / "recording.mp3"
-            audio_path.write_bytes(b"local audio")
-            for path in (text_path, audio_path, Path(directory)):
-                with self.subTest(path=path):
-                    await translate.convert_to_malayalam(str(path))
-                    self.assertEqual(
-                        self.generate.call_args.kwargs["contents"],
-                        [translate.SYSTEM_PROMPT, f"Input Text to Convert:\n\n{path}"],
-                    )
-
-    async def test_maximum_length_text_does_not_access_the_filesystem(self):
-        text = "a" * main.MAX_TEXT_LENGTH
-        with patch.object(translate, "Path", side_effect=AssertionError("Unexpected file access")):
-            await translate.convert_to_malayalam(text)
-        self.assertEqual(
-            self.generate.call_args.kwargs["contents"],
-            [translate.SYSTEM_PROMPT, f"Input Text to Convert:\n\n{text}"],
-        )
-
-    async def test_translation_errors_propagate(self):
-        self.generate.side_effect = RuntimeError("Translation failed")
-        with self.assertRaisesRegex(RuntimeError, "Translation failed"):
-            await translate.convert_to_malayalam("Hello")
-
-    async def test_empty_translation_is_an_error(self):
-        self.generate.return_value = SimpleNamespace(text=None)
-        with self.assertRaisesRegex(RuntimeError, "Gemini returned empty response"):
-            await translate.convert_to_malayalam("Hello")
 
 
 class TTSPipelineTests(unittest.IsolatedAsyncioTestCase):
@@ -186,7 +125,7 @@ class TTSPipelineTests(unittest.IsolatedAsyncioTestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    async def test_translation_generates_voice_and_removes_temporary_audio(self):
+    async def test_text_generates_voice_and_removes_temporary_audio(self):
         audio_paths = []
 
         async def save_audio(filename):
@@ -194,22 +133,15 @@ class TTSPipelineTests(unittest.IsolatedAsyncioTestCase):
             Path(filename).write_bytes(b"generated audio")
 
         communicate = Mock(save=AsyncMock(side_effect=save_audio))
-        with (
-            patch.object(tts, "convert_to_malayalam", AsyncMock(
-                return_value="Translated text"
-            )) as convert,
-            patch.object(tts.edge_tts, "Communicate", return_value=communicate) as communicate_factory,
-        ):
+        with patch.object(tts.edge_tts, "Communicate", return_value=communicate) as communicate_factory:
             await tts.run_tts(self.bot, 123, "Hello", 456)
-        convert.assert_awaited_once_with("Hello")
-        communicate_factory.assert_called_once_with("Translated text", tts.VOICE)
-        self.assertIn("Translating", self.send.call_args.args[1])
+        communicate_factory.assert_called_once_with("Hello", tts.VOICE)
+        self.assertIn("Generating audio", self.send.call_args.args[1])
         upload = self.http_client.post.call_args
         self.assertEqual(upload.args[0], f"{main.TELEGRAM_API_URL}/sendVoice")
         self.assertEqual(upload.kwargs["data"], {
             "chat_id": "123",
-            "caption": "Translated text",
-            "parse_mode": "HTML",
+            "caption": "Hello",
             "reply_to_message_id": "456",
         })
         self.assertEqual(upload.kwargs["timeout"], 60.0)
@@ -221,16 +153,27 @@ class TTSPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(audio_paths), 1)
         self.assertFalse(audio_paths[0].exists())
 
-    async def test_translation_failure_is_reported(self):
-        self.send.return_value = {}
-        with (
-            patch.object(tts, "convert_to_malayalam", AsyncMock(
-                side_effect=RuntimeError("Service unavailable")
-            )),
-            patch.object(tts.edge_tts, "Communicate") as communicate_factory,
+    async def test_input_is_passed_unchanged_to_synthesis_and_caption(self):
+        for text in (
+            "Hello world",
+            "https://example.com/recording.mp3",
+            str(Path(__file__).resolve()),
+            "<b>Hello</b> & goodbye",
+            "a" * main.MAX_TEXT_LENGTH,
         ):
+            with self.subTest(text=text[:80]):
+                communicate = Mock(save=AsyncMock())
+                with patch.object(tts.edge_tts, "Communicate", return_value=communicate) as factory:
+                    await tts.run_tts(self.bot, 123, text, 456)
+                factory.assert_called_once_with(text, tts.VOICE)
+                upload_data = self.http_client.post.call_args.kwargs["data"]
+                self.assertEqual(upload_data["caption"], text[:1024])
+                self.assertNotIn("parse_mode", upload_data)
+
+    async def test_synthesis_failure_without_progress_message_is_reported(self):
+        self.send.return_value = {}
+        with patch.object(tts.edge_tts, "Communicate", side_effect=RuntimeError("Service unavailable")):
             await tts.run_tts(self.bot, 123, "Hello", 456)
-        communicate_factory.assert_not_called()
         self.assertIn("Service unavailable", self.send.call_args.args[1])
 
     async def test_audio_failures_are_reported_and_temporary_files_removed(self):
@@ -246,14 +189,9 @@ class TTSPipelineTests(unittest.IsolatedAsyncioTestCase):
                     Path(filename).write_bytes(b"generated audio")
 
                 self.http_client.post.return_value = httpx.Response(500, text="Upload failed")
-                with (
-                    patch.object(tts, "convert_to_malayalam", AsyncMock(
-                        return_value="Translated text"
-                    )),
-                    patch.object(tts.edge_tts, "Communicate", return_value=Mock(
-                        save=AsyncMock(side_effect=save_audio)
-                    )),
-                ):
+                with patch.object(tts.edge_tts, "Communicate", return_value=Mock(
+                    save=AsyncMock(side_effect=save_audio)
+                )):
                     await tts.run_tts(self.bot, 123, "Hello", 456)
                 self.assertIn("failed", self.edit.call_args.args[2].lower())
                 self.assertEqual(len(audio_paths), 1)
@@ -285,7 +223,7 @@ class TelegramClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(request.content), {
             "commands": [
                 {"command": "start", "description": "Start the bot"},
-                {"command": "tts", "description": "Translate and convert text to Malayalam speech"},
+                {"command": "tts", "description": "Convert text to speech"},
             ]
         })
 
@@ -379,7 +317,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(health.json(), {
                         "status": "running",
                         "bot": "Malayalam TTS Bot",
-                        "description": "Translates text to Malayalam speech",
+                        "description": "Converts text to speech",
                         "webhook": "/telegram",
                     })
                     response = await webhook_client.post("/telegram", json={

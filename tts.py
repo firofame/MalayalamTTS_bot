@@ -1,4 +1,4 @@
-"""Translation-to-speech workflow and Telegram progress updates."""
+"""Text-to-speech workflow and Telegram progress updates."""
 import asyncio
 import contextlib
 import html
@@ -9,7 +9,6 @@ import tempfile
 import edge_tts
 
 from telegram_client import TelegramClient
-from translate import convert_to_malayalam
 
 logger = logging.getLogger("bot.tts")
 VOICE = "en-US-AvaMultilingualNeural"
@@ -35,42 +34,24 @@ async def run_tts(
 ) -> None:
     logger.info("TTS started: chat_id=%s, args_len=%d", chat_id, len(args))
 
-    resp = await bot.send_message(chat_id, "🌐 Translating...", reply_to_message_id=reply_to_message_id)
+    resp = await bot.send_message(chat_id, "🎙️ Generating audio...", reply_to_message_id=reply_to_message_id)
     progress_msg_id = resp.get("result", {}).get("message_id") or None
 
     audio_file = None
     action_task = None
 
     try:
-        action_task = asyncio.create_task(_chat_action_loop(bot, chat_id, "typing"))
-
-        malayalam_text = await convert_to_malayalam(args)
-        logger.info("Translation complete: chat_id=%s, text_len=%d", chat_id, len(malayalam_text))
-
-        if not malayalam_text:
-            if progress_msg_id:
-                await bot.edit_message(chat_id, progress_msg_id, "❌ Translation service is busy. Please try again.")
-            else:
-                await bot.send_message(chat_id, "❌ Translation service is busy. Please try again.", reply_to_message_id=reply_to_message_id)
-            return
-
-        action_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await action_task
         action_task = asyncio.create_task(_chat_action_loop(bot, chat_id, "record_voice"))
-
-        if progress_msg_id:
-            await bot.edit_message(chat_id, progress_msg_id, "🎙️ Generating audio...")
 
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
             audio_file = tmp.name
 
-        communicate = edge_tts.Communicate(malayalam_text, VOICE)
+        communicate = edge_tts.Communicate(args, VOICE)
         await communicate.save(audio_file)
         logger.info("Audio generated: chat_id=%s", chat_id)
 
         voice_resp = await bot.send_voice(
-            chat_id, audio_file, malayalam_text, reply_to_message_id,
+            chat_id, audio_file, args, reply_to_message_id,
         )
         if voice_resp.status_code != 200:
             if progress_msg_id:

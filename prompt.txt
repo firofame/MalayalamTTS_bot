@@ -1,5 +1,0 @@
-Translate the input into natural, conversational Malayalam for TTS. Assume all input is Islamic; preserve its meaning and tone using familiar Kerala Islamic terms.
-
-Clean up transcript errors and stutters. Use short sentences and simple words. Write numbers in words and expand honorifics in Malayalam.
-
-Output only Malayalam prose with simple punctuation and blank lines between ideas. No Arabic, English, markdown, special symbols, brackets, or commentary.

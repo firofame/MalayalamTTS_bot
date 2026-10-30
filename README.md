@@ -1,6 +1,6 @@
 # MalayalamTTS_bot
 
-Telegram-only bot that translates text to Malayalam speech and text.
+Telegram-only bot that converts text directly to speech without translation.
 
 **Bot:** [t.me/MalayalamTTS_bot](https://t.me/MalayalamTTS_bot)
 
@@ -8,12 +8,12 @@ Telegram-only bot that translates text to Malayalam speech and text.
 
 Send any of these to the bot:
 
-- **Plain text** — translates directly to Malayalam
-- `/tts <text>` — translate text to Malayalam speech
+- **Plain text** — converts directly to speech
+- `/tts <text>` — convert text to speech
 
 Link extraction and downloading are not supported. Links are treated as plain
-text, not fetched. Translation input is limited to 4,000 characters, with a
-30-second cooldown between translation requests per chat.
+text, not fetched. Text input is limited to 4,000 characters, with a
+30-second cooldown between speech requests per chat.
 
 Local file input is not supported. File paths in messages are treated as plain text.
 
@@ -21,17 +21,18 @@ Local file input is not supported. File paths in messages are treated as plain t
 
 | Input | Process |
 |-------|---------|
-| Plain text | Translates directly |
-| `/tts <text>` | Translates the supplied text |
+| Plain text | Reads the supplied text aloud |
+| `/tts <text>` | Reads the supplied text aloud |
 
-The bot sends the Malayalam translation as a caption on the voice message.
+The bot sends the original text as a plain-text caption on the voice message,
+truncated to Telegram's 1,024-character caption limit.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `/start` | Start the bot |
-| `/tts` | Translate text to Malayalam speech |
+| `/tts` | Convert text to speech |
 
 ## Deploy
 
@@ -42,7 +43,7 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
-Set `BOT_TOKEN` and `GOOGLE_API_KEY` environment variables.
+Set the `BOT_TOKEN` environment variable. No Google API key is required.
 
 ### Speech synthesis returns HTTP 403
 
@@ -67,9 +68,7 @@ hosting network can reach Microsoft's speech service.
 ```
 main.py             — FastAPI lifecycle, webhook routing, and input validation
 telegram_client.py  — Telegram Bot API calls using the shared HTTP client
-tts.py              — Translation-to-speech workflow, progress, and audio cleanup
-translate.py        — Text translation (text → Malayalam)
-prompt.txt          — Gemini system prompt
+tts.py              — Text-to-speech workflow, progress, and audio cleanup
 ```
 
 App startup creates a shared Telegram client, which is passed to the webhook's
@@ -87,6 +86,5 @@ python3 -m unittest discover -s tests
 ## Tech Stack
 
 - **FastAPI** — webhook server
-- **Google Gemini 3.5 Flash-Lite** (`gemini-3.5-flash-lite`) — translation with medium thinking
 - **Edge TTS** — text-to-speech
 - **Telegram Bot API** — messaging
