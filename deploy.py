@@ -16,7 +16,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parent
 RUNTIME_FILES = (
-    "function_app.py", "main.py", "storage.py", "telegram_client.py", "tts.py",
+    "function_app.py", "main.py", "storage.py", "telegram_client.py", "tts.py", "article.py",
     "host.json", "requirements.txt",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -112,6 +112,7 @@ def deploy(args: argparse.Namespace) -> None:
                 "speechResourceName": {"value": args.speech_resource},
                 "botToken": {"value": token},
                 "webhookSecret": {"value": secret},
+                "jinaApiKey": {"value": os.environ.get("JINA_API_KEY") or values.get("JINA_API_KEY") or ""},
             }))
             outputs = json.loads(run_az(
                 "deployment", "group", "create", "--resource-group", args.resource_group,
@@ -139,6 +140,7 @@ def deploy(args: argparse.Namespace) -> None:
             telegram_request(client, token, "setMyCommands", {"commands": [
                 {"command": "start", "description": "Start the bot"},
                 {"command": "tts", "description": "Convert text to speech"},
+                {"command": "url", "description": "Read a blog post as audio"},
             ]})
             telegram_request(client, token, "setWebhook", {
                 "url": webhook,

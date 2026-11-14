@@ -112,3 +112,6 @@ venv.bak/
 local.settings.json
 .python_packages/
 .azure/
+
+# ZCode agent workspace state
+.zcode/

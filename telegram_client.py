@@ -21,6 +21,7 @@ class TelegramClient:
             "commands": [
                 {"command": "start", "description": "Start the bot"},
                 {"command": "tts", "description": "Convert text to speech"},
+                {"command": "url", "description": "Read a blog post as audio"},
             ]
         })
         logger.info("Bot commands registered")
