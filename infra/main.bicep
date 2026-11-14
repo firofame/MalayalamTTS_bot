@@ -10,6 +10,10 @@ param botToken string
 @secure()
 param webhookSecret string
 
+@secure()
+@description('Optional Jina Reader API key for higher article extraction limits.')
+param jinaApiKey string = ''
+
 var suffix = uniqueString(resourceGroup().id, 'malayalamtts')
 
 resource speech 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
@@ -113,6 +117,10 @@ resource bot 'Microsoft.Web/sites@2024-04-01' = {
         {
           name: 'SPEECH_REGION'
           value: speech.location
+        }
+        {
+          name: 'JINA_API_KEY'
+          value: jinaApiKey
         }
       ]
     }

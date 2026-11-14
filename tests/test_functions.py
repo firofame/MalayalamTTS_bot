@@ -65,6 +65,23 @@ class FunctionTests(unittest.IsolatedAsyncioTestCase):
             {"type": "bot_command", "offset": 0, "length": 4},
         ])
 
+    async def test_url_updates_survive_queue_normalization(self):
+        for text, entities in (
+            ("/url https://example.test/post", [{"type": "bot_command", "offset": 0, "length": 4}]),
+            ("https://example.test/post", [{"type": "url", "offset": 0, "length": 28}]),
+        ):
+            with self.subTest(text=text):
+                data = json.loads(json.dumps(UPDATE))
+                data["message"].update({"text": text, "entities": entities})
+                response, output = await self.webhook(data=data)
+                self.assertEqual(response.status_code, 200)
+                queued = json.loads(output.set.call_args.args[0])
+                self.assertEqual(queued["message"]["text"], text)
+                expected_entities = [
+                    {"type": "bot_command", "offset": 0, "length": 4},
+                ] if entities[0]["type"] == "bot_command" else []
+                self.assertEqual(queued["message"]["entities"], expected_entities)
+
     async def test_missing_wrong_and_non_ascii_secrets_are_rejected(self):
         for secret in ("", "wrong", "\u2603"):
             with self.subTest(secret=secret), self.assertLogs("bot.functions", level="WARNING"):

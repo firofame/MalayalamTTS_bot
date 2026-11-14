@@ -10,9 +10,12 @@ Send any of these to the bot:
 
 - **Plain text** — converts directly to speech
 - `/tts <text>` — convert text to speech
+- **A blog-post link** or `/url <link>` — reads the article as audio
 
-Link extraction and downloading are not supported. Links are treated as plain
-text, not fetched. Text input is limited to 4,000 characters, with a
+Article links are fetched through the Jina Reader service, which strips
+navigation, headers, and footers and returns the readable article text.
+Typed text input is limited to 4,000 characters; extracted articles are
+capped at 40,000 characters and delivered as one merged voice note. There is a
 30-second cooldown between speech requests per chat.
 
 Local file input is not supported. File paths in messages are treated as plain text.
@@ -23,9 +26,11 @@ Local file input is not supported. File paths in messages are treated as plain t
 |-------|---------|
 | Plain text | Reads the supplied text aloud |
 | `/tts <text>` | Reads the supplied text aloud |
+| Blog link or `/url <link>` | Fetches the article with Jina Reader, strips markdown, and reads it aloud |
 
 The bot sends the original text as a plain-text caption on the voice message,
-truncated to Telegram's 1,024-character caption limit.
+truncated to Telegram's 1,024-character caption limit. For articles, the
+caption is the article title followed by its source link.
 
 ## Commands
 
@@ -33,6 +38,7 @@ truncated to Telegram's 1,024-character caption limit.
 |---------|-------------|
 | `/start` | Start the bot |
 | `/tts` | Convert text to speech |
+| `/url` | Read a blog post as audio |
 
 ## Deploy
 
@@ -102,12 +108,12 @@ After checking the deployment, cut over:
 python deploy.py --switch-webhook
 ```
 
-This registers the existing `/start` and `/tts` commands and points Telegram at
+This registers the `/start`, `/tts`, and `/url` commands and points Telegram at
 `https://<function-host>/api/telegram` with a secret header. Pending updates are
 not discarded. The secret is preserved on subsequent deployments.
 
-Before retiring an older host, test `/start`, plain text, `/tts`, a link as
-literal text, and a second request within 30 seconds. Confirm audio arrives,
+Before retiring an older host, test `/start`, plain text, `/tts`, a blog-post
+link, and a second request within 30 seconds. Confirm audio arrives,
 captions are intact, and `getWebhookInfo` reports no delivery errors.
 **Only then delete the old service in its dashboard.** The script never stops
 or deletes a Render service. Deleting a Render service is a separate manual
@@ -137,6 +143,7 @@ These settings are populated automatically by the deployment:
 | `TELEGRAM_WEBHOOK_SECRET` | Validates `X-Telegram-Bot-Api-Secret-Token` |
 | `SPEECH_KEY` | Existing Azure Speech resource key |
 | `SPEECH_REGION` | Speech resource's region |
+| `JINA_API_KEY` | Optional Jina Reader key for higher article extraction limits |
 | `AzureWebJobsStorage` | Dedicated bot storage connection |
 | `DEPLOYMENT_STORAGE_CONNECTION_STRING` | Flex deployment container connection |
 
@@ -159,7 +166,9 @@ Changing `TELEGRAM_WEBHOOK_SECRET` also requires updating Telegram's webhook.
   a duplicate. Telegram does not provide an idempotency key for `sendVoice`.
 - Speech errors, including exhausted quota, are reported to the user without
   automatically resynthesizing. The voice remains `en-US-AvaMultilingualNeural`,
-  using the same MP3 format and full 4,000-character input limit.
+  using the same MP3 format. Typed text stays at the 4,000-character limit;
+  articles up to 40,000 characters are synthesized in chunks merged into one
+  voice note.
 - Queued text is private to the storage account and removed after successful
   processing. Failed/poison messages can retain text until an operator deletes
   them. The queue excludes sender profiles. State stores IDs and timestamps,
@@ -200,6 +209,7 @@ function_app.py      — Azure HTTP, queue, and cleanup timer triggers
 main.py              — Commands, input validation, and cooldown handling
 storage.py           — Durable update claims and atomic cooldown decisions
 telegram_client.py   — Telegram Bot API calls using a per-invocation HTTP client
+article.py           — Jina Reader article extraction and markdown cleanup
 tts.py               — Azure Speech, progress updates, and audio cleanup
 deploy.py            — Provisioning, packaging, readiness checks, optional cutover
 infra/main.bicep     — Dedicated Python Flex Consumption infrastructure
@@ -230,4 +240,5 @@ so no live messages or Speech charges occur. They are skipped by default.
 - **Azure Functions** — authenticated webhook, queue worker, cleanup timer
 - **Azure Storage Queues and Tables** — durable jobs, deduplication, cooldowns
 - **Azure Speech** — official neural text-to-speech
+- **Jina Reader** — article extraction for blog-post links
 - **Telegram Bot API** — messaging

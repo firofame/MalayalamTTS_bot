@@ -6,6 +6,7 @@
     "BOT_TOKEN": "",
     "TELEGRAM_WEBHOOK_SECRET": "",
     "SPEECH_KEY": "",
-    "SPEECH_REGION": "centralindia"
+    "SPEECH_REGION": "centralindia",
+    "JINA_API_KEY": ""
   }
 }

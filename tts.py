@@ -13,13 +13,48 @@ from telegram_client import TelegramClient, TelegramError
 
 logger = logging.getLogger("bot.tts")
 VOICE = "en-US-AvaMultilingualNeural"
+CHUNK_SIZE = 4000
+# Sentence-ending marks used to split long text without cutting words.
+SENTENCE_MARKS = ("\n", "।", ". ", "! ", "? ")
 
 
 class SpeechError(RuntimeError):
     pass
 
 
-async def synthesize(http_client: httpx.AsyncClient, text: str, filename: str) -> None:
+def sanitize_text(text: str) -> str:
+    """Keep only characters that can be included in Azure SSML."""
+    cleaned = "".join(
+        ch for ch in text
+        if ch in ("\n", "\t")
+        or 32 <= ord(ch) <= 0xD7FF
+        or 0xE000 <= ord(ch) <= 0xFFFD
+        or 0x10000 <= ord(ch) <= 0x10FFFF
+    )
+    return cleaned.strip()
+
+
+def _chunk_text(text: str, limit: int = CHUNK_SIZE) -> list[str]:
+    """Split text at sentence or paragraph boundaries, never mid-word."""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + limit, len(text))
+        if end < len(text):
+            window = text[start:end]
+            cut = max(window.rfind(mark) for mark in SENTENCE_MARKS)
+            if cut < 0:
+                cut = window.rfind(" ")
+            if cut >= 0:
+                end = start + cut + 1
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        start = end
+    return chunks
+
+
+async def synthesize(http_client: httpx.AsyncClient, text: str) -> bytes:
     key = os.environ.get("SPEECH_KEY")
     region = os.environ.get("SPEECH_REGION", "")
     if not key or not re.fullmatch(r"[a-z0-9]+", region):
@@ -51,8 +86,7 @@ async def synthesize(http_client: httpx.AsyncClient, text: str, filename: str) -
         raise SpeechError(f"Azure Speech is unavailable (HTTP {response.status_code}).")
     if not response.content or not response.headers.get("content-type", "").startswith("audio/"):
         raise SpeechError("Azure Speech returned invalid or empty audio.")
-    with open(filename, "wb") as audio:
-        audio.write(response.content)
+    return response.content
 
 
 async def _chat_action_loop(bot: TelegramClient, chat_id: int, action: str) -> None:
@@ -70,13 +104,16 @@ async def _chat_action_loop(bot: TelegramClient, chat_id: int, action: str) -> N
 async def run_tts(
     bot: TelegramClient,
     chat_id: int,
-    args: str,
+    text: str,
+    caption: str,
     reply_to_message_id: int | None = None,
+    progress_msg_id: int | None = None,
 ) -> None:
-    logger.info("TTS started: chat_id=%s, args_len=%d", chat_id, len(args))
+    logger.info("TTS started: chat_id=%s, text_len=%d", chat_id, len(text))
 
-    resp = await bot.send_message(chat_id, "🎙️ Generating audio...", reply_to_message_id=reply_to_message_id)
-    progress_msg_id = resp.get("result", {}).get("message_id") or None
+    if progress_msg_id is None:
+        resp = await bot.send_message(chat_id, "🎙️ Generating audio...", reply_to_message_id=reply_to_message_id)
+        progress_msg_id = resp.get("result", {}).get("message_id") or None
 
     audio_file = None
     action_task = None
@@ -84,14 +121,18 @@ async def run_tts(
     try:
         action_task = asyncio.create_task(_chat_action_loop(bot, chat_id, "record_voice"))
 
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            audio_file = tmp.name
+        # MP3 frames concatenate cleanly, so chunks merge into one audio file.
+        audio = b"".join([await synthesize(bot.http_client, chunk) for chunk in _chunk_text(text)])
+        if not audio:
+            raise SpeechError("No text was provided to synthesize.")
 
-        await synthesize(bot.http_client, args, audio_file)
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp.write(audio)
+            audio_file = tmp.name
         logger.info("Audio generated: chat_id=%s", chat_id)
 
         await bot.send_voice(
-            chat_id, audio_file, args, reply_to_message_id,
+            chat_id, audio_file, caption, reply_to_message_id,
         )
 
         logger.info("Voice sent: chat_id=%s", chat_id)
